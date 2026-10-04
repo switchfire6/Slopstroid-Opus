@@ -1,0 +1,2057 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BOLIDE — Asteroid Impact Simulator</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:rgba(7,11,19,.74);--line:rgba(140,180,255,.16);--acc:#ff9a4a;--acc2:#7fd4ff;--txt:#d9e3f1;--dim:#8493aa;--warn:#ff6b4a}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:#000;color:var(--txt);font:12px/1.35 "Segoe UI",Inter,system-ui,sans-serif}
+canvas#gl{display:block;position:fixed;inset:0;width:100%;height:100%;cursor:crosshair}
+.panel{position:fixed;background:var(--bg);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:10px;padding:12px 14px;box-shadow:0 10px 34px rgba(0,0,0,.5)}
+#controls{top:12px;left:12px;width:304px;max-height:calc(100% - 24px);overflow:auto}
+#results{top:12px;right:12px;width:318px;max-height:calc(100% - 24px);overflow:auto}
+.panel::-webkit-scrollbar{width:6px}.panel::-webkit-scrollbar-thumb{background:rgba(140,180,255,.2);border-radius:3px}
+h1{font-size:14px;letter-spacing:.32em;margin:0;color:#fff;font-weight:800}
+h1 span{color:var(--acc)}
+h2{font-size:9.5px;letter-spacing:.18em;color:var(--acc2);margin:13px 0 6px;font-weight:700;text-transform:uppercase;border-bottom:1px solid var(--line);padding-bottom:3px}
+.sub{color:var(--dim);font-size:10.5px;margin-top:2px}
+.row{margin:6px 0}
+.row label{display:flex;justify-content:space-between;color:var(--dim);font-size:11px;margin-bottom:1px}
+.row label b{color:var(--txt);font-weight:600;font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--acc);height:14px;margin:0}
+select{width:100%;background:#0c1321;color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:4px 5px;font-size:11.5px}
+.chk{display:flex;align-items:center;gap:6px;color:var(--dim);font-size:11px;margin:5px 0}
+.btns{display:flex;gap:8px;margin-top:12px}
+button{flex:1;padding:9px 0;border-radius:6px;border:1px solid var(--line);background:#15213a;color:#fff;font-weight:800;letter-spacing:.14em;cursor:pointer;font-size:11px}
+button:hover{filter:brightness(1.15)}
+button#launch{background:linear-gradient(180deg,#ff8a3d,#c9411a);border-color:#ff9c5c;flex:1.6}
+button:disabled{opacity:.35;cursor:default;filter:none}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+td{padding:1.5px 0;vertical-align:top;font-size:11.2px}td:first-child{color:var(--dim);padding-right:8px}td:last-child{text-align:right;color:#eef3fa}
+#site{font-variant-numeric:tabular-nums;color:#eef3fa}
+.pill{display:inline-block;padding:1px 7px;border-radius:9px;font-size:9.5px;font-weight:800;letter-spacing:.1em;margin-left:4px}
+.land{background:#5b4a2c;color:#ffdca0}.ocean{background:#173d63;color:#9fd6ff}
+#verdict{margin-top:9px;padding:8px 9px;border-radius:6px;background:rgba(255,110,60,.09);border:1px solid rgba(255,140,80,.28);font-size:11px;line-height:1.45}
+#verdict b{color:#ffb27a}
+#hud{left:50%;transform:translateX(-50%);bottom:12px;width:min(640px,calc(100vw - 664px));min-width:440px;display:none;padding:9px 12px}
+#hudTop{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+#phase{font-weight:800;letter-spacing:.2em;font-size:12px;color:var(--acc)}
+#clock{font-variant-numeric:tabular-nums;font-size:13px;color:#fff;font-weight:700}
+#tscale{color:var(--dim);font-size:10px;margin-left:8px}
+#hudBody{display:flex;gap:12px}
+#tele{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:1px 12px}
+#tele div{display:flex;justify-content:space-between;font-size:11px;color:var(--dim)}
+#tele div b{color:#fff;font-weight:600;font-variant-numeric:tabular-nums}
+#chart{width:250px;height:104px;background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:4px}
+#hint{position:fixed;left:50%;transform:translateX(-50%);top:12px;color:var(--dim);font-size:11px;background:rgba(0,0,0,.35);padding:5px 12px;border-radius:14px;pointer-events:none;transition:opacity .6s}
+#stats{position:fixed;right:12px;bottom:10px;color:#6b7891;font-size:10px;font-variant-numeric:tabular-nums;text-align:right;pointer-events:none}
+#loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#8aa;letter-spacing:.3em;font-size:12px;background:#000;z-index:10}
+.note{color:#6f7d94;font-size:9.8px;margin-top:6px;line-height:1.4}
+</style>
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="loading">INITIALISING&nbsp;GPU&nbsp;PIPELINE…</div>
+
+<div id="controls" class="panel">
+  <h1>BOLIDE<span>/</span>SIM</h1>
+  <div class="sub">Atmospheric entry &amp; hypervelocity impact model</div>
+
+  <h2>Scenario</h2>
+  <div class="row"><select id="preset">
+    <option value="custom">— Custom —</option>
+    <option value="chelyabinsk">Chelyabinsk 2013 (airburst)</option>
+    <option value="tunguska">Tunguska 1908 (airburst)</option>
+    <option value="barringer">Barringer / Meteor Crater</option>
+    <option value="ries">Nördlinger Ries (14.6 Ma)</option>
+    <option value="apophis">Apophis-class (370 m)</option>
+    <option value="eltanin">Eltanin (ocean, 2.5 Ma)</option>
+    <option value="chicxulub" selected>Chicxulub (K-Pg, 66 Ma)</option>
+    <option value="comet">Long-period comet (5 km)</option>
+  </select></div>
+
+  <h2>Impactor</h2>
+  <div class="row"><label>Diameter <b id="vDiam"></b></label><input id="diam" type="range" min="0" max="1000" step="1"></div>
+  <div class="row"><label>Composition</label><select id="comp">
+    <option value="comet">Cometary ice / dust</option>
+    <option value="carb">Carbonaceous chondrite</option>
+    <option value="stony" selected>Ordinary chondrite (stony)</option>
+    <option value="stonyiron">Stony-iron</option>
+    <option value="iron">Iron-nickel</option>
+  </select></div>
+  <div class="row"><label>Bulk density <b id="vDens"></b></label><input id="dens" type="range" min="300" max="8000" step="10"></div>
+  <div class="row"><label>Yield strength <b id="vStr"></b></label><input id="str" type="range" min="2" max="8.5" step="0.01"></div>
+
+  <h2>Trajectory</h2>
+  <div class="row"><label>Entry velocity (at 120 km) <b id="vVel"></b></label><input id="vel" type="range" min="11.2" max="72" step="0.1"></div>
+  <div class="row"><label>Entry angle (from horizontal) <b id="vAng"></b></label><input id="ang" type="range" min="5" max="90" step="1"></div>
+  <div class="row"><label>Approach bearing (from) <b id="vAz"></b></label><input id="az" type="range" min="0" max="359" step="1"></div>
+
+  <h2>Ground zero <span class="sub">(click the globe)</span></h2>
+  <div id="site">—</div>
+  <div class="row"><label>Target material</label><div id="targetInfo" class="sub">—</div></div>
+
+  <h2>Playback</h2>
+  <div class="row"><label>Speed <b id="vSpeed"></b></label><input id="speed" type="range" min="-2" max="2" step="0.1" value="0"></div>
+  <label class="chk"><input id="cine" type="checkbox" checked> Cinematic camera (drag to take control)</label>
+  <label class="chk"><input id="dustVis" type="checkbox" checked> Show global dust veil &amp; impact winter</label>
+
+  <div class="btns">
+    <button id="launch">▶ LAUNCH</button>
+    <button id="reset">RESET</button>
+  </div>
+  <div class="note">Drag: pan · Right-drag / Shift-drag: rotate &amp; tilt · Wheel: altitude · Click: set ground zero.<br>
+  Entry: 2-D ballistic integration with gravity, drag, ablation and Chyba/Hills–Goda pancake fragmentation. Craters, blast, thermal &amp; seismic: Collins, Melosh &amp; Marcus (2005) scaling. Asteroid size is visually exaggerated only when below pixel scale.</div>
+</div>
+
+<div id="results" class="panel">
+  <h2 style="margin-top:0">Predicted outcome</h2>
+  <table id="resTable"></table>
+  <div id="verdict"></div>
+</div>
+
+<div id="hud" class="panel">
+  <div id="hudTop"><div id="phase">—</div><div><span id="clock">—</span><span id="tscale"></span></div></div>
+  <div id="hudBody">
+    <div id="tele"></div>
+    <canvas id="chart" width="500" height="208"></canvas>
+  </div>
+</div>
+<div id="hint">Click anywhere on Earth to choose ground zero, then press LAUNCH</div>
+<div id="stats"></div>
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+
+/* =====================================================================
+   PHYSICAL CONSTANTS  (SI unless stated; scene unit = 1 Earth radius)
+   ===================================================================== */
+const RE = 6371000, GM = 3.986004418e14, G0 = 9.80665;
+const RHO0 = 1.225, HS = 8000, C0 = 343, P0 = 101325;
+const CD = 2.0, CH = 0.1, FP = 7.0;              // drag coeff., heat-transfer coeff., max pancake factor
+const MT = 4.184e15, KT = 4.184e12;
+const U = 1 / RE;                                 // metres -> scene units
+const SEA = 0.035;                                // procedural sea level (terrain height units)
+const ELEV_SCALE = 9000;                          // terrain unit -> metres (land)
+const SUN = new THREE.Vector3(0.853, 0.174, 0.492).normalize();
+
+/* =====================================================================
+   NOISE — bit-exact JS twin of the GLSL gradient noise (PCG3D hash),
+   used to classify ground zero (land / ocean / water depth) on the CPU.
+   ===================================================================== */
+function pcg3d(x, y, z) {
+  x = (Math.imul(x, 1664525) + 1013904223) >>> 0;
+  y = (Math.imul(y, 1664525) + 1013904223) >>> 0;
+  z = (Math.imul(z, 1664525) + 1013904223) >>> 0;
+  x = (x + Math.imul(y, z)) >>> 0; y = (y + Math.imul(z, x)) >>> 0; z = (z + Math.imul(x, y)) >>> 0;
+  x = (x ^ (x >>> 16)) >>> 0; y = (y ^ (y >>> 16)) >>> 0; z = (z ^ (z >>> 16)) >>> 0;
+  x = (x + Math.imul(y, z)) >>> 0; y = (y + Math.imul(z, x)) >>> 0; z = (z + Math.imul(x, y)) >>> 0;
+  return [x, y, z];
+}
+const _HN = 2 / 4294967295;
+function hgrad(ix, iy, iz) { const h = pcg3d((ix + 1048576) >>> 0, (iy + 1048576) >>> 0, (iz + 1048576) >>> 0); return [h[0] * _HN - 1, h[1] * _HN - 1, h[2] * _HN - 1]; }
+function noised(x, y, z) {
+  const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
+  const fx = x - ix, fy = y - iy, fz = z - iz;
+  const ux = fx * fx * fx * (fx * (fx * 6 - 15) + 10), uy = fy * fy * fy * (fy * (fy * 6 - 15) + 10), uz = fz * fz * fz * (fz * (fz * 6 - 15) + 10);
+  const dux = 30 * fx * fx * (fx * (fx - 2) + 1), duy = 30 * fy * fy * (fy * (fy - 2) + 1), duz = 30 * fz * fz * (fz * (fz - 2) + 1);
+  const ga = hgrad(ix, iy, iz), gb = hgrad(ix + 1, iy, iz), gc = hgrad(ix, iy + 1, iz), gd = hgrad(ix + 1, iy + 1, iz);
+  const ge = hgrad(ix, iy, iz + 1), gf = hgrad(ix + 1, iy, iz + 1), gg = hgrad(ix, iy + 1, iz + 1), gh = hgrad(ix + 1, iy + 1, iz + 1);
+  const va = ga[0] * fx + ga[1] * fy + ga[2] * fz, vb = gb[0] * (fx - 1) + gb[1] * fy + gb[2] * fz;
+  const vc = gc[0] * fx + gc[1] * (fy - 1) + gc[2] * fz, vd = gd[0] * (fx - 1) + gd[1] * (fy - 1) + gd[2] * fz;
+  const ve = ge[0] * fx + ge[1] * fy + ge[2] * (fz - 1), vf = gf[0] * (fx - 1) + gf[1] * fy + gf[2] * (fz - 1);
+  const vg = gg[0] * fx + gg[1] * (fy - 1) + gg[2] * (fz - 1), vh = gh[0] * (fx - 1) + gh[1] * (fy - 1) + gh[2] * (fz - 1);
+  const k1 = vb - va, k2 = vc - va, k3 = ve - va, k4 = va - vb - vc + vd, k5 = va - vc - ve + vg, k6 = va - vb - ve + vf, k7 = -va + vb + vc - vd + ve - vf - vg + vh;
+  const v = va + ux * k1 + uy * k2 + uz * k3 + ux * uy * k4 + uy * uz * k5 + uz * ux * k6 + ux * uy * uz * k7;
+  const g = [0, 0, 0];
+  for (let c = 0; c < 3; c++) {
+    g[c] = ga[c] + ux * (gb[c] - ga[c]) + uy * (gc[c] - ga[c]) + uz * (ge[c] - ga[c]) + ux * uy * (ga[c] - gb[c] - gc[c] + gd[c])
+      + uy * uz * (ga[c] - gc[c] - ge[c] + gg[c]) + uz * ux * (ga[c] - gb[c] - ge[c] + gf[c])
+      + ux * uy * uz * (-ga[c] + gb[c] + gc[c] - gd[c] + ge[c] - gf[c] - gg[c] + gh[c]);
+  }
+  g[0] += dux * (k1 + uy * k4 + uz * k6 + uy * uz * k7);
+  g[1] += duy * (k2 + uz * k5 + ux * k4 + uz * ux * k7);
+  g[2] += duz * (k3 + ux * k6 + uy * k5 + ux * uy * k7);
+  return [v, g[0], g[1], g[2]];
+}
+// eroded fBm terrain (must match GLSL terrain())
+function terrainHeight(px, py, pz, oct = 9) {
+  const w0 = noised(px * 1.3 + 1.7, py * 1.3 + 9.2, pz * 1.3 + 3.1)[0];
+  const w1 = noised(px * 1.3 + 8.3, py * 1.3 + 2.8, pz * 1.3 + 5.4)[0];
+  const w2 = noised(px * 1.3 + 4.1, py * 1.3 + 6.5, pz * 1.3 + 0.7)[0];
+  let qx = px * 1.55 + 0.42 * w0, qy = py * 1.55 + 0.42 * w1, qz = pz * 1.55 + 0.42 * w2;
+  let a = 0.55, h = 0, sx = 0, sy = 0, sz = 0;
+  for (let i = 0; i < oct; i++) {
+    const n = noised(qx, qy, qz);
+    sx += n[1]; sy += n[2]; sz += n[3];
+    h += a * n[0] / (1 + 0.35 * (sx * sx + sy * sy + sz * sz));
+    a *= 0.5;
+    const nx = (-0.8 * qy - 0.6 * qz) * 2.03, ny = (0.8 * qx + 0.36 * qy - 0.48 * qz) * 2.03, nz = (0.6 * qx - 0.48 * qy + 0.64 * qz) * 2.03;
+    qx = nx; qy = ny; qz = nz;
+  }
+  return h;
+}
+function oceanDepthFromH(dh) { // dh = SEA - h  (>0 in ocean)  -> metres
+  return dh < 0.03 ? dh / 0.03 * 180 : Math.min(7500, 180 + (dh - 0.03) * 16000);
+}
+function surfaceAt(P) {
+  const h = terrainHeight(P.x, P.y, P.z);
+  if (h > SEA) return { ocean: false, elev: (h - SEA) * ELEV_SCALE, depth: 0 };
+  return { ocean: true, elev: -oceanDepthFromH(SEA - h), depth: oceanDepthFromH(SEA - h) };
+}
+function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+/* =====================================================================
+   ATMOSPHERIC ENTRY — 2-D integration in the trajectory plane about
+   Earth's centre: central gravity, drag, ablation, and the
+   Chyba–Thomas–Zahnle / Hills–Goda "pancake" fragmentation model.
+   ===================================================================== */
+function atmRho(z) { return RHO0 * Math.exp(-Math.max(z, -500) / HS); }
+
+function simulateEntry(par) {
+  const L0 = par.L, rhoI = par.rho, v0 = par.v, th = par.theta * Math.PI / 180, Y = par.Y, Q = par.Q;
+  const z0 = 120e3;
+  let X = RE + z0, Yp = 0, vx = -v0 * Math.sin(th), vy = v0 * Math.cos(th);
+  const m0 = rhoI * Math.PI * L0 ** 3 / 6;
+  let m = m0, L = L0, dL = 0, t = 0;
+  const E0 = 0.5 * m0 * v0 * v0;
+  let broke = false, zBreak = null, vBreak = null, tBreak = null, qMax = 0;
+  const S = [], bins = new Float64Array(125);
+  let accE = 0, lastT = 0, lastZ = z0, end = 'timeout';
+  const push = (z, v) => {
+    const r = Math.hypot(X, Yp);
+    const gamma = Math.asin(Math.max(-1, Math.min(1, -(X * vx + Yp * vy) / (r * Math.max(v, 1e-6)))));
+    S.push({ t, X, Y: Yp, z, v, m, L, gamma, broke, q: atmRho(z) * v * v, dEdt: t > lastT ? accE / (t - lastT) : 0 });
+    accE = 0; lastT = t; lastZ = z;
+  };
+  push(z0, v0);
+  for (let it = 0; it < 900000; it++) {
+    const r = Math.hypot(X, Yp), z = r - RE, v = Math.hypot(vx, vy);
+    const ra = atmRho(z), q = ra * v * v;
+    if (q > qMax) qMax = q;
+    if (!broke && q > Y) { broke = true; zBreak = z; vBreak = v; tBreak = t; }
+    const A = Math.PI * L * L / 4;
+    const aD = CD * ra * A * v * v / (2 * m);
+    const gk = -GM / (r * r * r);
+    const ax = -aD * vx / v + gk * X, ay = -aD * vy / v + gk * Yp;
+    const dm = -(CH / (2 * Q)) * ra * A * v * v * v;               // ablation
+    const spreading = broke && L < FP * L0;
+    const ddL = spreading ? CD * ra * v * v / (rhoI * L) : 0;      // pancake lateral spreading
+    let dt = Math.min(0.01, 25 / v, 0.02 * v / Math.max(aD, 1e-9), 0.02 * m / Math.max(-dm, 1e-30), Math.max(z, 50) / (v * 20));
+    if (spreading) { dt = Math.min(dt, 0.02 * Math.sqrt(L / Math.max(ddL, 1e-12))); if (dL > 0) dt = Math.min(dt, 0.02 * L / dL); }
+    dt = Math.max(dt, 2e-6);
+    // energy deposited in the air = drag work + kinetic energy of ablated mass
+    const dE = (aD * m * v - 0.5 * v * v * dm) * dt;
+    vx += ax * dt; vy += ay * dt; X += vx * dt; Yp += vy * dt;
+    m = Math.max(m + dm * dt, 0);
+    if (spreading) { dL += ddL * dt; L = Math.min(L + dL * dt, FP * L0); }
+    t += dt;
+    const v2 = Math.hypot(vx, vy);
+    accE += dE;
+    const z2 = Math.hypot(X, Yp) - RE;
+    bins[Math.max(0, Math.min(124, Math.floor(z2 / 1000)))] += dE;
+    if (z2 <= 0) {
+      const f = z / Math.max(z - z2, 1e-9);
+      X -= vx * dt * (1 - f); Yp -= vy * dt * (1 - f); t -= dt * (1 - f);
+      end = 'ground'; push(0, v2); break;
+    }
+    if (m < 1e-5 * m0) { end = 'ablated'; push(z2, v2); break; }
+    if (v2 < 600 && z2 < 60e3) { end = 'decelerated'; push(z2, v2); break; }
+    if (z2 > z0 + 2000 && (X * vx + Yp * vy) > 0) { end = 'skip'; push(z2, v2); break; }
+    if (t > 3000) break;
+    if (Math.abs(z2 - lastZ) > 100 || t - lastT > 0.05) push(z2, v2);
+  }
+  const last = S[S.length - 1];
+  const Eg = end === 'ground' ? 0.5 * last.m * last.v * last.v : 0;
+  let iPk = 0, pk = 0;
+  for (let i = 0; i < S.length; i++) if (S[i].dEdt > pk) { pk = S[i].dEdt; iPk = i; }
+  let bMax = 0, zPk = 0;
+  for (let k = 0; k < bins.length; k++) if (bins[k] > bMax) { bMax = bins[k]; zPk = (k + 0.5) * 1000; }
+  let iMin = 0; for (let i = 0; i < S.length; i++) if (S[i].z < S[iMin].z) iMin = i;
+  let regime, iEvt;
+  if (end === 'skip') { regime = 'grazer'; iEvt = iMin; }
+  else if (end === 'ground' && Eg > 0.05 * E0 && last.v > 2000) { regime = (broke && last.L > 1.5 * L0) ? 'fragmented' : 'impact'; iEvt = S.length - 1; }
+  else { regime = 'airburst'; iEvt = iPk; }
+  return {
+    S, bins, end, regime, iEvt, tEvt: S[iEvt].t, E0, m0, Eg, Eair: Math.max(E0 - Eg, 0),
+    zBreak, vBreak, tBreak, broke, qMax, zPeak: regime === 'airburst' ? S[iPk].z : zPk, peakDEdt: pk,
+    vImpact: end === 'ground' ? last.v : 0, mImpact: end === 'ground' ? last.m : 0, LImpact: last.L, gammaImpact: last.gamma,
+  };
+}
+
+/* =====================================================================
+   IMPACT EFFECTS — Collins, Melosh & Marcus (2005) scaling laws
+   ===================================================================== */
+function overpressure(r, Ekt) { // Pa, surface-burst fit (px = 75 kPa, rx = 290 m at 1 kt)
+  const r1 = Math.max(r, 1) / Math.cbrt(Math.max(Ekt, 1e-9)), px = 75000, rx = 290;
+  return px * rx / (4 * r1) * (1 + 3 * Math.pow(rx / r1, 1.3));
+}
+function solveRadius(f, target) { // f decreasing in r; returns r where f(r)=target
+  if (f(0) < target) return 0;
+  let lo = 1, hi = 4e7;
+  if (f(hi) > target) return hi;
+  for (let i = 0; i < 70; i++) { const mid = Math.sqrt(lo * hi); if (f(mid) > target) lo = mid; else hi = mid; }
+  return lo;
+}
+function computeScenario(par, site) {
+  const sim = simulateEntry(par);
+  const out = { par, site, sim, E0: sim.E0, E0Mt: sim.E0 / MT, m0: sim.m0 };
+  const ocean = site.ocean, dw = site.depth;
+  const isImpact = sim.regime === 'impact' || sim.regime === 'fragmented';
+  out.isImpact = isImpact;
+  const sinT = Math.max(Math.sin(Math.max(Math.abs(sim.gammaImpact), 3 * Math.PI / 180)), 0.05);
+  out.sinT = sinT;
+  let Eimp = 0, cr = null;
+  if (isImpact) {
+    const v = sim.vImpact, m = sim.mImpact;
+    const Lq = Math.cbrt(6 * m / (Math.PI * par.rho));
+    Eimp = 0.5 * m * v * v;
+    const s3 = Math.cbrt(sinT), gpow = Math.pow(G0, -0.22);
+    cr = { Lq, v };
+    let vfloor = v;
+    if (ocean) {
+      cr.Dtcw = 1.365 * Math.cbrt(par.rho / 1000) * Math.pow(Lq, 0.78) * Math.pow(v, 0.44) * gpow * s3;
+      vfloor = v * Math.exp(-3 * 1000 * 2 * dw / (2 * par.rho * Lq * sinT));
+      cr.vSeafloor = vfloor;
+    }
+    const rhoT = 2750;
+    cr.Dtc = vfloor > 500 ? 1.161 * Math.cbrt(par.rho / rhoT) * Math.pow(Lq, 0.78) * Math.pow(vfloor, 0.44) * gpow * s3 : 0;
+    const Dc = 3200;
+    if (cr.Dtc <= 0) { cr.Dfr = 0; cr.dfr = 0; cr.hr = 0; cr.morph = 'none (water absorbed impact)'; }
+    else if (1.25 * cr.Dtc < Dc) { cr.Dfr = 1.25 * cr.Dtc; cr.dfr = 0.2 * cr.Dfr; cr.morph = 'simple (bowl)'; }
+    else {
+      cr.Dfr = 1.17 * Math.pow(cr.Dtc, 1.13) / Math.pow(Dc, 0.13);
+      cr.dfr = 1000 * 0.4 * Math.pow(cr.Dfr / 1000, 0.3);
+      cr.morph = cr.Dfr > 30000 ? 'complex, peak-ring' : 'complex, central peak';
+    }
+    cr.hr = cr.Dfr > 0 ? 0.07 * Math.pow(cr.Dtc, 4) / Math.pow(cr.Dfr, 3) : 0;
+    cr.dtc = cr.Dtc / 2.83;
+    cr.Vmelt = cr.Dtc > 0 ? 8.9e-12 * Eimp * sinT : 0;
+    const Dx = ocean ? Math.max(cr.Dtcw, cr.Dtc) : cr.Dtc;
+    cr.Tex = 0.8 * Math.sqrt(Math.max(Dx, 1) / G0);
+    cr.r1m = Math.cbrt(Math.pow(cr.Dtc, 4) / 112);
+    out.seismicM = 0.67 * Math.log10(Eimp) - 5.87;
+    if (ocean) {
+      const Rc = cr.Dtcw / 2;
+      cr.tsuA0 = Math.min(cr.Dtcw / 5.66, dw);
+      cr.tsuC = Math.sqrt(G0 * dw);
+      cr.tsuA = r => r <= Rc ? cr.tsuA0 : cr.tsuA0 * Rc / r;
+    }
+  }
+  out.crater = cr; out.Eimp = Eimp;
+  const Eair = isImpact ? Math.max(sim.E0 - Eimp, 0) : sim.Eair;
+  const zb = isImpact ? 0 : sim.zPeak;
+  out.Eair = Eair; out.zb = zb;
+  const Ebig = Math.max(Eimp, isImpact ? 0 : Eair);
+  out.Efx = Ebig;
+  out.Rf = 0.002 * Math.cbrt(Ebig);
+  const EMt = Ebig / MT;
+  // thermal radiation (luminous efficiency 3e-3)
+  const eta = 3e-3, horizon = Math.sqrt(2 * RE * (zb + out.Rf));
+  const rTh = phi => Math.min(Math.sqrt(eta * Ebig / (2 * Math.PI * phi * Math.pow(Math.max(EMt, 1e-9), 1 / 6))), horizon);
+  out.rBurn2 = sim.regime === 'grazer' ? 0 : rTh(2.5e5);
+  out.rIgnite = sim.regime === 'grazer' ? 0 : rTh(1.0e6);
+  // air blast
+  const pAt = r => {
+    let p = 0;
+    if (isImpact) p = overpressure(r, Eimp / KT);
+    if (Eair > 0.02 * sim.E0 && sim.regime !== 'grazer') p = Math.max(p, overpressure(Math.hypot(r, isImpact ? sim.zPeak : zb), Eair / KT));
+    return p;
+  };
+  out.pAt = pAt;
+  out.r1psi = solveRadius(pAt, 6900); out.r2psi = solveRadius(pAt, 13800); out.r5psi = solveRadius(pAt, 34500); out.r20psi = solveRadius(pAt, 138000);
+  out.recurrence = 109 * Math.pow(sim.E0 / MT, 0.78);
+  out.dvEarth = sim.m0 * par.v / 5.972e24;
+  // shock wave kinematics (Sedov–Taylor blast, hemispherical, decaying to acoustic)
+  const k = Math.pow(2 * Math.max(Ebig, 1) / RHO0, 0.2);
+  const ts = Math.pow(0.4 * k / C0, 1 / 0.6);
+  out.shockR = t => t < ts ? k * Math.pow(Math.max(t, 0), 0.4) : k * Math.pow(ts, 0.4) + C0 * (t - ts);
+  // global consequences
+  const lg = Math.log10(Math.max(EMt, 1e-9));
+  out.global = lg >= 7.5 ? 3 : lg >= 5 ? 2 : lg >= 2.5 ? 1 : 0;
+  out.dustOpacity = Math.max(0, Math.min(0.62, (lg - 4) / 5.5));
+  return out;
+}
+
+/* ---------- formatting ---------- */
+function fmtLen(m) { if (!isFinite(m)) return '—'; if (m <= 0) return '—'; if (m < 1) return (m * 100).toFixed(0) + ' cm'; if (m < 1000) return m.toFixed(m < 10 ? 1 : 0) + ' m'; if (m < 1e5) return (m / 1000).toFixed(m < 1e4 ? 2 : 1) + ' km'; return Math.round(m / 1000).toLocaleString() + ' km'; }
+function fmtE(J) { const mt = J / MT; if (mt >= 1) return (mt >= 1e4 ? mt.toExponential(2) : mt.toPrecision(3)) + ' Mt'; const kt = J / KT; if (kt >= 0.01) return kt.toPrecision(3) + ' kt'; return (J / 4.184e9).toPrecision(3) + ' t'; }
+function fmtSci(x, u = '') { if (x === 0) return '0' + u; const e = Math.floor(Math.log10(Math.abs(x))); const mnt = x / Math.pow(10, e); return mnt.toFixed(2) + '×10' + String(e).replace(/-/, '⁻').replace(/\d/g, d => '⁰¹²³⁴⁵⁶⁷⁸⁹'[d]) + u; }
+function fmtTime(s) { if (s < 1) return s.toFixed(2) + ' s'; if (s < 60) return s.toFixed(1) + ' s'; if (s < 3600) return Math.floor(s / 60) + ' min ' + String(Math.floor(s % 60)).padStart(2, '0') + ' s'; if (s < 86400 * 2) return (s / 3600).toFixed(1) + ' h'; if (s < 86400 * 365) return (s / 86400).toFixed(1) + ' days'; return (s / 3.156e7).toPrecision(3) + ' yr'; }
+function fmtYears(y) { if (y < 1) return '< 1 yr'; if (y < 1e3) return Math.round(y) + ' yr'; if (y < 1e6) return (y / 1e3).toPrecision(3) + ' kyr'; if (y < 1e9) return (y / 1e6).toPrecision(3) + ' Myr'; return (y / 1e9).toPrecision(3) + ' Gyr'; }
+function fmtMass(kg) { if (kg < 1e3) return kg.toFixed(0) + ' kg'; if (kg < 1e9) return (kg / 1e3).toPrecision(3) + ' t'; return fmtSci(kg, ' kg'); }
+
+/* =====================================================================
+   GLSL — shared noise / colour science
+   ===================================================================== */
+const GLSL_COMMON = /* glsl */`
+const mat3 OCT_ROT = mat3(0.00, 0.80, 0.60, -0.80, 0.36, -0.48, -0.60, -0.48, 0.64);
+float ss(float a, float b, float x){ float t = clamp((x - a) / (b - a), 0.0, 1.0); return t * t * (3.0 - 2.0 * t); }
+uvec3 pcg3d(uvec3 v){
+  v = v * 1664525u + 1013904223u;
+  v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
+  v ^= v >> 16u;
+  v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
+  return v;
+}
+vec3 hgrad(vec3 i){ uvec3 h = pcg3d(uvec3(ivec3(i) + ivec3(1048576))); return vec3(h) * (2.0 / 4294967295.0) - 1.0; }
+vec4 noised(vec3 x){
+  vec3 i = floor(x), f = x - i;
+  vec3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  vec3 du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
+  vec3 ga = hgrad(i), gb = hgrad(i + vec3(1,0,0)), gc = hgrad(i + vec3(0,1,0)), gd = hgrad(i + vec3(1,1,0));
+  vec3 ge = hgrad(i + vec3(0,0,1)), gf = hgrad(i + vec3(1,0,1)), gg = hgrad(i + vec3(0,1,1)), gh = hgrad(i + vec3(1,1,1));
+  float va = dot(ga, f), vb = dot(gb, f - vec3(1,0,0)), vc = dot(gc, f - vec3(0,1,0)), vd = dot(gd, f - vec3(1,1,0));
+  float ve = dot(ge, f - vec3(0,0,1)), vf = dot(gf, f - vec3(1,0,1)), vg = dot(gg, f - vec3(0,1,1)), vh = dot(gh, f - vec3(1,1,1));
+  float k1 = vb - va, k2 = vc - va, k3 = ve - va, k4 = va - vb - vc + vd, k5 = va - vc - ve + vg, k6 = va - vb - ve + vf, k7 = -va + vb + vc - vd + ve - vf - vg + vh;
+  float v = va + u.x * k1 + u.y * k2 + u.z * k3 + u.x * u.y * k4 + u.y * u.z * k5 + u.z * u.x * k6 + u.x * u.y * u.z * k7;
+  vec3 g = ga + u.x * (gb - ga) + u.y * (gc - ga) + u.z * (ge - ga) + u.x * u.y * (ga - gb - gc + gd) + u.y * u.z * (ga - gc - ge + gg)
+         + u.z * u.x * (ga - gb - ge + gf) + u.x * u.y * u.z * (-ga + gb + gc - gd + ge - gf - gg + gh);
+  g += du * vec3(k1 + u.y * k4 + u.z * k6 + u.y * u.z * k7, k2 + u.z * k5 + u.x * k4 + u.z * u.x * k7, k3 + u.x * k6 + u.y * k5 + u.x * u.y * k7);
+  return vec4(v, g);
+}
+float gnoise(vec3 x){
+  vec3 i = floor(x), f = x - i;
+  vec3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  float va = dot(hgrad(i), f), vb = dot(hgrad(i + vec3(1,0,0)), f - vec3(1,0,0));
+  float vc = dot(hgrad(i + vec3(0,1,0)), f - vec3(0,1,0)), vd = dot(hgrad(i + vec3(1,1,0)), f - vec3(1,1,0));
+  float ve = dot(hgrad(i + vec3(0,0,1)), f - vec3(0,0,1)), vf = dot(hgrad(i + vec3(1,0,1)), f - vec3(1,0,1));
+  float vg = dot(hgrad(i + vec3(0,1,1)), f - vec3(0,1,1)), vh = dot(hgrad(i + vec3(1,1,1)), f - vec3(1,1,1));
+  return mix(mix(mix(va, vb, u.x), mix(vc, vd, u.x), u.y), mix(mix(ve, vf, u.x), mix(vg, vh, u.x), u.y), u.z);
+}
+float fbm(vec3 p, int oct){ float a = 0.5, s = 0.0; for (int i = 0; i < 10; i++){ if (i >= oct) break; s += a * gnoise(p); p = OCT_ROT * p * 2.03; a *= 0.5; } return s; }
+// Planckian locus (linear sRGB, normalised) — Helland fit
+vec3 blackbody(float T){
+  float t = clamp(T, 800.0, 40000.0) / 100.0;
+  float r = t <= 66.0 ? 1.0 : clamp(1.29293618606 * pow(t - 60.0, -0.1332047592), 0.0, 1.0);
+  float g = t <= 66.0 ? clamp(0.39008157876 * log(t) - 0.63184144378, 0.0, 1.0) : clamp(1.12989086089 * pow(t - 60.0, -0.0755148492), 0.0, 1.0);
+  float b = t >= 66.0 ? 1.0 : (t <= 19.0 ? 0.0 : clamp(0.54320678911 * log(t - 10.0) - 1.19625408914, 0.0, 1.0));
+  return pow(vec3(r, g, b), vec3(2.2));
+}
+// relative radiance of a blackbody in the visible band (≈ T^4 above ~1500 K, steeper below)
+float bbLum(float T){ return pow(T / 6000.0, 4.0) * ss(700.0, 1600.0, T); }
+// Kasten–Young relative air mass + Rayleigh/Mie transmittance of sunlight
+vec3 sunTransmit(float mu, float dust){
+  float Z = degrees(acos(clamp(mu, -1.0, 1.0)));
+  float am = 1.0 / (max(mu, 0.0) + 0.50572 * pow(max(96.07995 - min(Z, 96.0), 0.08), -1.6364));
+  return exp(-(vec3(0.0464, 0.108, 0.265) + 0.028 + dust) * am);
+}
+`;
+
+const GLSL_CLOUDS = /* glsl */`
+float cloudField(vec3 p, float oct){
+  float ang = uTime * (0.0016 + 0.0012 * p.y * p.y);
+  float c = cos(ang), s = sin(ang);
+  vec3 q = vec3(c * p.x - s * p.z, p.y, s * p.x + c * p.z);
+  vec3 w = vec3(gnoise(q * 2.2 + vec3(3.1)), gnoise(q * 2.2 + vec3(7.7, 1.3, 4.2)), gnoise(q * 2.2 + vec3(2.5, 8.1, 6.6)));
+  q = q * 3.4 + w * 0.55;
+  float n = 0.0, a = 0.5;
+  for (int i = 0; i < 9; i++){ float fi = float(i); if (fi >= oct) break; n += a * gnoise(q) * clamp(oct - fi, 0.0, 1.0); q = OCT_ROT * q * 2.1; a *= 0.58; }
+  float al = abs(p.y);
+  float cover = 0.05 + 0.20 * exp(-pow(al / 0.13, 2.0)) + 0.17 * exp(-pow((al - 0.8) / 0.17, 2.0)) - 0.12 * exp(-pow((al - 0.42) / 0.11, 2.0));
+  return smoothstep(0.13 - cover, 0.3 - cover, n);
+}
+`;
+
+/* =====================================================================
+   EARTH SURFACE SHADER — eroded fBm terrain with analytic gradients,
+   biomes, ocean BRDF, city lights, and the crater / blast / tsunami /
+   dust-veil fields that permanently alter the surface.
+   ===================================================================== */
+const MAXC = 6;
+const EARTH_VS = /* glsl */`
+#include <common>
+#include <logdepthbuf_pars_vertex>
+varying vec3 vWorld;
+void main(){
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vWorld = wp.xyz;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+  #include <logdepthbuf_vertex>
+}`;
+
+const EARTH_FS = /* glsl */`
+#include <common>
+#include <logdepthbuf_pars_fragment>
+#define MAXC ${MAXC}
+uniform vec3 uSun, uCam, uGZ, uFlashCol;
+uniform float uTime, uPixA;
+uniform int uCount;
+uniform vec4 uCA[MAXC], uCB[MAXC], uCC[MAXC], uCD[MAXC], uCE[MAXC];
+uniform vec4 uShock, uFlash, uDust, uTsu;
+varying vec3 vWorld;
+${GLSL_COMMON}
+${GLSL_CLOUDS}
+const float SEA = ${SEA.toFixed(4)};
+const float MU = 1.0 / 6371000.0;
+const float ESC = 9000.0 / 6371000.0;
+const float EXAG = 55.0;
+
+vec4 terrain(vec3 p, float octF){
+  float w0 = gnoise(p * 1.3 + vec3(1.7, 9.2, 3.1)), w1 = gnoise(p * 1.3 + vec3(8.3, 2.8, 5.4)), w2 = gnoise(p * 1.3 + vec3(4.1, 6.5, 0.7));
+  vec3 q = p * 1.55 + 0.42 * vec3(w0, w1, w2);
+  float a = 0.55, h = 0.0; vec3 ds = vec3(0.0), g = vec3(0.0);
+  mat3 J = mat3(1.55);
+  for (int i = 0; i < 16; i++){
+    float fi = float(i);
+    if (fi >= octF) break;
+    float fade = clamp(octF - fi, 0.0, 1.0);
+    vec4 n = noised(q);
+    ds += n.yzw;
+    float w = a / (1.0 + 0.35 * dot(ds, ds));
+    h += w * n.x * fade;
+    g += w * fade * (transpose(J) * n.yzw);
+    a *= 0.5;
+    q = OCT_ROT * q * 2.03;
+    J = OCT_ROT * J * 2.03;
+  }
+  return vec4(h, g);
+}
+float oceanDepthM(float dh){ return dh < 0.03 ? dh / 0.03 * 180.0 : min(7500.0, 180.0 + (dh - 0.03) * 16000.0); }
+vec3 frameE(vec3 c){ vec3 e = cross(vec3(0.0, 1.0, 0.0), c); float l = length(e); return l < 1e-5 ? vec3(1.0, 0.0, 0.0) : e / l; }
+
+// returns (land/seafloor height, water-surface height) in scene units; xo = (x_final, x_transient)
+vec2 craterH(int i, vec2 l, out vec2 xo){
+  float R = uCA[i].w; vec4 B = uCB[i], C = uCC[i], E = uCE[i];
+  float r = length(l), az = atan(l.y, l.x);
+  float irr = 1.0 + 0.035 * sin(az * 5.0 + E.w) + 0.02 * sin(az * 11.0 + E.w * 2.3) + 0.012 * sin(az * 23.0 + E.w * 4.1);
+  float x = r / (max(R, 1e-12) * irr);
+  float xt = B.z > 0.0 ? r / (B.z * irr) : 1e3;
+  xo = vec2(x, xt);
+  if (C.w > 1.5) return vec2(0.0);
+  float hf = 0.0;
+  if (R > 0.0){
+    float d = B.x, hr = B.y;
+    if (x < 1.0){
+      float bowl = hr - d + d * x * x;
+      float s = smoothstep(0.5, 1.0, x);
+      float cplx = hr - d + d * (s + 0.07 * sin(s * 18.85) * s * (1.0 - s));
+      cplx += E.x * d * exp(-pow(x / 0.11, 2.0));
+      cplx += E.y * d * 0.35 * exp(-pow((x - 0.42) / 0.07, 2.0));
+      hf = mix(bowl, cplx, E.z);
+    } else {
+      hf = hr * pow(x, -3.0) * ss(C.z, C.z * 0.85, x);
+    }
+  }
+  float ht = 0.0;
+  if (B.z > 0.0) ht = (xt < 1.0 ? B.w * (xt * xt - 1.0) : 0.0) + 0.14 * B.w * exp(-pow((xt - 1.0) / 0.12, 2.0));
+  if (C.w > 0.5) return vec2(hf * C.x, ht * (1.0 - C.x));
+  return vec2(mix(ht, hf, C.x), 0.0);
+}
+
+void main(){
+  #include <logdepthbuf_fragment>
+  vec3 p = normalize(vWorld);
+  float camD = length(uCam - vWorld);
+  float fp = max(camD * uPixA / max(abs(dot(p, (uCam - vWorld) / camD)), 0.2), 1e-9);
+  float octF = clamp(log2(0.5 / (1.55 * fp)) / 1.0215 + 1.0, 1.0, 16.0);
+  vec4 T = terrain(p, octF);
+  float h = T.x;
+  vec3 gT = T.yzw - dot(T.yzw, p) * p;
+  float lat = asin(clamp(p.y, -1.0, 1.0)), alat = abs(lat);
+  float mu = dot(p, uSun);
+
+  // ---------------- impact alteration fields ----------------
+  float cH = 0.0, wH = 0.0, cMask = 0.0, ejecta = 0.0, scorch = 0.0, kill = 0.0, foam = 0.0, turbid = 0.0;
+  vec3 cG = vec3(0.0), wG = vec3(0.0), emis = vec3(0.0);
+  for (int i = 0; i < MAXC; i++){
+    if (i >= uCount) break;
+    vec3 c = uCA[i].xyz; float R = uCA[i].w;
+    if (dot(p, c) < 0.3) continue;
+    vec3 Ee = frameE(c), Nn = cross(c, Ee);
+    vec3 dv = p - c;
+    vec2 l = vec2(dot(dv, Ee), dot(dv, Nn));
+    float dist = length(l);
+    float extent = max(max(R * 14.0, uCB[i].z * 3.0), max(uCD[i].x, uCD[i].y) * 1.3);
+    if (dist > extent) continue;
+    vec4 C = uCC[i], D = uCD[i], E = uCE[i];
+    float az = atan(l.y, l.x);
+    // scorched vegetation (thermal pulse) & flattened structures (blast) — Tunguska-style butterfly
+    float bf = 1.0 + 0.22 * D.w * cos(2.0 * (az - D.z));
+    float nfr = 0.85 + 0.3 * gnoise(p * 900.0 + E.w);
+    scorch = max(scorch, ss(D.x, D.x * 0.72, dist * nfr / bf));
+    kill = max(kill, ss(D.y * 1.05, D.y * 0.8, dist / bf));
+    if (C.w > 1.5) { // airburst: radial tree-fall streaks
+      float tf = ss(D.y, D.y * 0.5, dist / bf) * (0.5 + 0.5 * sin(az * 260.0 + gnoise(p * 3000.0) * 6.0));
+      scorch = max(scorch, tf * 0.6);
+      continue;
+    }
+    vec2 xo, xd;
+    float e = max(max(R, uCB[i].z) * 0.004, fp * 0.7);
+    vec2 h0 = craterH(i, l, xo);
+    vec2 h1 = craterH(i, l + vec2(e, 0.0), xd);
+    vec2 h2 = craterH(i, l + vec2(0.0, e), xd);
+    cH += h0.x; wH += h0.y;
+    cG += ((h1.x - h0.x) / e) * Ee + ((h2.x - h0.x) / e) * Nn;
+    wG += ((h1.y - h0.y) / e) * Ee + ((h2.y - h0.y) / e) * Nn;
+    float x = xo.x, xt = xo.y;
+    bool oceanC = C.w > 0.5;
+    float inside = max(C.x * ss(1.04, 0.96, x), (oceanC ? 0.0 : ss(1.03, 0.95, xt)));
+    if (!oceanC) cMask = max(cMask, inside);
+    // ejecta blanket + rays with the oblique-impact forbidden zone
+    float dAz = abs(mod(az - D.z + PI, 2.0 * PI) - PI);
+    float forbid = 1.0 - D.w * ss(1.1, 0.25, dAz);
+    float blanket = ss(C.z, C.z * 0.8, x) * ss(0.95, 1.05, x) * pow(max(x, 1.0), -1.4);
+    float rayN = gnoise(vec3(cos(az) * 9.0, sin(az) * 9.0, E.w)) + 0.5 * gnoise(vec3(cos(az) * 31.0, sin(az) * 31.0, E.w + 3.0));
+    float rays = ss(0.18, 0.6, rayN) * ss(C.z * 1.9, C.z * 0.6, x) * ss(1.0, 1.6, x) * pow(max(x, 1.0), -0.6);
+    float ej = clamp((blanket * 1.2 + rays * 0.7) * forbid, 0.0, 1.0);
+    if (!oceanC) ejecta = max(ejecta, ej);
+    // impact melt sheet / glowing transient cavity
+    float meltZone = mix(0.32, 0.55, E.z);
+    float mz = ss(meltZone, meltZone * 0.6, x) * C.x + ss(0.9, 0.3, xt) * (1.0 - C.x);
+    if (C.y > 0.0 && mz > 0.0){
+      float cr = gnoise(p * 2.0 / max(R, 1e-6) * 3.0 + E.w) * 0.5 + gnoise(p * 9.0 / max(R, 1e-6) + E.w) * 0.35;
+      float crust = ss(-0.15, 0.35, cr + (1.0 - C.y) * 0.8);
+      float Tm = 700.0 + 1900.0 * C.y * (1.0 - 0.6 * crust);
+      emis += blackbody(Tm) * bbLum(Tm) * 60.0 * mz * (oceanC ? 0.15 : 1.0);
+    }
+    if (oceanC) { foam = max(foam, (1.0 - C.x) * (exp(-pow((xt - 1.0) / 0.1, 2.0)) + 0.5 * ss(1.0, 0.0, xt))); turbid = max(turbid, C.x * ss(C.z * 1.3, 0.6, xt * 0.5 + x * 0.5) * (0.6 + 0.4 * gnoise(p * 3.0 / max(uCB[i].z, 1e-6) + E.w))); }
+  }
+
+  // ---------------- base surface ----------------
+  float hl = h - SEA;
+  float elevM = hl > 0.0 ? hl * 9000.0 : -oceanDepthM(-hl);
+  float floorM = elevM + cH / MU;
+  bool land = hl > 0.0 || floorM > 0.0;
+  float temp = 1.0 - pow(alat / 1.5708, 1.25) * 1.25 - max(elevM, 0.0) / 6500.0 + 0.1 * gnoise(p * 6.0);
+  float moist = 0.55 + 0.45 * fbm(p * 3.1 + vec3(5.0, 1.0, 2.0), 4) * 2.0 - 0.45 * exp(-pow((alat - 0.43) / 0.12, 2.0)) + 0.2 * exp(-pow(alat / 0.15, 2.0));
+  moist += 0.25 * ss(0.06, 0.0, hl);
+  vec3 alb;
+  vec3 n;
+  float iceCap = ss(1.13, 1.2, alat + 0.06 * gnoise(p * 9.0));
+  float detail = 0.85 + 0.3 * gnoise(p * 400.0) + 0.15 * gnoise(p * 4000.0);
+  if (land){
+    vec3 forest = vec3(0.022, 0.050, 0.017), grass = vec3(0.085, 0.095, 0.035), desert = vec3(0.43, 0.32, 0.18);
+    vec3 steppe = vec3(0.21, 0.16, 0.095), tundra = vec3(0.12, 0.11, 0.085), rock = vec3(0.15, 0.13, 0.11), snow = vec3(0.82, 0.85, 0.9);
+    alb = mix(desert, steppe, ss(0.2, 0.42, moist));
+    alb = mix(alb, grass, ss(0.42, 0.6, moist));
+    alb = mix(alb, forest, ss(0.6, 0.8, moist) * ss(0.15, 0.5, temp));
+    alb = mix(alb, tundra, ss(0.32, 0.12, temp));
+    float slope = length(gT) * ESC * EXAG;
+    alb = mix(alb, rock, ss(0.15, 0.4, slope) * 0.8);
+    alb = mix(alb, snow, max(ss(0.1, -0.02, temp), iceCap));
+    alb *= detail;
+    vec3 rockC = vec3(0.17, 0.15, 0.13) * (0.8 + 0.4 * gnoise(p * 2500.0));
+    alb = mix(alb, rockC, cMask);
+    alb = mix(alb, vec3(0.25, 0.22, 0.19) * (0.9 + 0.2 * gnoise(p * 1800.0)), ejecta * 0.85);
+    alb = mix(alb, vec3(0.03, 0.026, 0.022), scorch * 0.8 * (1.0 - cMask) * (1.0 - iceCap));
+    if (hl <= 0.0) alb = mix(vec3(0.2, 0.18, 0.15), alb, 0.3); // exposed seafloor (crater rim islands)
+    n = normalize(p - gT * ESC * EXAG * (1.0 - 0.9 * max(cMask, ejecta)) - cG * 4.0);
+  } else {
+    float depth = -floorM;
+    alb = mix(vec3(0.03, 0.14, 0.15), vec3(0.004, 0.016, 0.05), ss(0.0, 2500.0, depth));
+    alb = mix(alb, vec3(0.1, 0.17, 0.2), ss(60.0, 0.0, depth) * 0.6);
+    alb = mix(alb, vec3(0.045, 0.06, 0.045), clamp(turbid, 0.0, 1.0) * 0.7);   // suspended sediment, pumice & debris rafts
+    // wind waves (LOD-faded)
+    float wf = ss(2e-4, 2e-6, fp);
+    vec3 wv = noised(p * 4000.0 + vec3(0.0, uTime * 0.6, 0.0)).yzw * 0.5 + noised(p * 21000.0 - vec3(uTime * 1.3)).yzw * 0.35;
+    wv -= dot(wv, p) * p;
+    n = normalize(p - wv * 0.025 * wf - wG * 4.0);
+    // tsunami wave train
+    if (uTsu.w > 0.0){
+      vec3 dv = p - uGZ; float dg = length(dv);
+      float ph = (uTsu.x - dg) / uTsu.z;
+      if (ph > -1.0 && ph < 12.0){
+        float env = ss(-1.0, 0.0, ph) * exp(-ph * 0.35) * uTsu.y;
+        float wave = sin(ph * 6.2832);
+        vec3 rd = normalize(dv - dot(dv, p) * p + 1e-9);
+        n = normalize(n + rd * cos(ph * 6.2832) * env * 0.12);
+        foam = max(foam, max(wave, 0.0) * env * ss(0.3, 1.0, uTsu.y));
+      }
+    }
+    alb = mix(alb, vec3(0.75, 0.8, 0.85), iceCap * 0.9 + ss(0.06, -0.04, temp) * 0.7);
+  }
+
+  // ---------------- lighting ----------------
+  vec3 V = normalize(uCam - vWorld);
+  float dg0 = acos(clamp(dot(p, uGZ), -1.0, 1.0));
+  float dustCover = uDust.y * ss(uDust.x, uDust.x - 0.2, dg0);
+  vec3 sunT = sunTransmit(mu, dustCover * 2.5);
+  float shadowP = ss(-0.035, 0.04, mu);
+  float cs = cloudField(normalize(p + uSun * 0.0022), 4.0);
+  vec3 dvS = p - uGZ;
+  cs *= 1.0 - uShock.w * ss(uShock.z, uShock.z * 0.7, length(dvS));
+  float cloudSh = 1.0 - 0.6 * cs * ss(0.0, 0.15, mu);
+  vec3 sunI = vec3(1.0, 0.97, 0.93) * 2.7 * sunT * shadowP;
+  vec3 skyAmb = vec3(0.012, 0.022, 0.045) * ss(-0.25, 0.3, mu) * (1.0 - dustCover * 0.8);
+  float NdL = max(dot(n, uSun), 0.0);
+  vec3 col;
+  if (land){
+    col = alb * (sunI * NdL * cloudSh + skyAmb);
+  } else {
+    float shin = mix(1400.0, 90.0, clamp(fp * 400.0, 0.0, 1.0));
+    vec3 H = normalize(uSun + V);
+    float fres = 0.02 + 0.98 * pow(1.0 - max(dot(n, V), 0.0), 5.0);
+    float spec = pow(max(dot(n, H), 0.0), shin) * (shin + 8.0) / 25.13;
+    col = alb * (sunI * NdL * 0.6 + skyAmb) + sunI * spec * fres * cloudSh * step(0.0, NdL) * 0.5;
+    col += fres * vec3(0.03, 0.07, 0.14) * ss(-0.1, 0.3, mu) * (1.0 - dustCover);
+    col = mix(col, vec3(0.8) * (sunI * NdL + skyAmb * 2.0), clamp(foam, 0.0, 1.0));
+  }
+  // impact flash / fireball illumination (inverse-square point source)
+  vec3 Lf = uFlash.xyz - vWorld; float dl = max(length(Lf), 1e-9);
+  col += (land ? alb : alb + 0.05) * uFlashCol * (uFlash.w / (dl * dl)) * max(dot(n, Lf / dl), 0.0);
+  // night-side city lights (destroyed inside the blast radius)
+  if (land && hl > 0.0){
+    float pop = ss(0.12, 0.42, fbm(p * 38.0, 3)) * ss(0.3, 0.75, gnoise(p * 260.0) + 0.5) * ss(0.25, 0.55, moist) * ss(0.1, 0.4, temp);
+    pop *= (1.0 + 2.0 * ss(0.05, 0.0, hl)) * (1.0 - kill) * (1.0 - cMask) * (1.0 - iceCap);
+    col += vec3(1.0, 0.62, 0.28) * pop * 0.35 * ss(0.05, -0.15, mu) * (1.0 - dustCover * 0.9);
+  }
+  col += emis;
+  // atmospheric shock front: condensation (Wilson) ring and dust lofted behind it
+  if (uShock.y > 0.0){
+    float dg = length(dvS);
+    float ring = exp(-pow((dg - uShock.x) / max(uShock.x * 0.035, fp * 2.0), 2.0)) * uShock.y;
+    float behind = ss(uShock.x * 1.0, uShock.x * 0.75, dg) * uShock.y;
+    vec3 lit = sunI * max(mu, 0.0) + skyAmb;
+    col = mix(col, vec3(0.16, 0.13, 0.11) * lit, behind * 0.35 * (land ? 1.0 : 0.3));
+    col += vec3(0.75, 0.78, 0.8) * lit * ring * 0.35;
+  }
+  // global ejecta / soot veil and ejecta re-entry heating
+  if (dustCover > 0.0){
+    vec3 veil = vec3(0.075, 0.058, 0.045) * (2.7 * sunTransmit(mu, 0.0) * ss(-0.05, 0.1, mu) * 0.6 + 0.01);
+    col = mix(col, veil, dustCover);
+    col += vec3(1.0, 0.28, 0.06) * uDust.z * ss(uDust.x, uDust.x - 0.6, dg0) * 0.05 * (0.4 + 0.6 * ss(0.1, -0.2, mu));
+  }
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+/* =====================================================================
+   CLOUD LAYER (~10 km) — domain-warped fBm, self-shadowed, cleared by
+   the blast wave, stained by the impact-dust veil.
+   ===================================================================== */
+const CLOUD_FS = /* glsl */`
+#include <common>
+#include <logdepthbuf_pars_fragment>
+uniform vec3 uSun, uGZ, uCam;
+uniform float uTime, uPixA;
+uniform vec4 uShock, uDust;
+varying vec3 vWorld;
+${GLSL_COMMON}
+${GLSL_CLOUDS}
+void main(){
+  #include <logdepthbuf_fragment>
+  vec3 p = normalize(vWorld);
+  float camD = length(uCam - vWorld);
+  float fp = max(camD * uPixA / max(abs(dot(p, (uCam - vWorld) / camD)), 0.2), 1e-9);
+  float oct = clamp(log2(0.5 / (3.4 * fp)) / 1.07 + 1.0, 1.0, 9.0);
+  float d = cloudField(p, oct);
+  float dg = length(p - uGZ);
+  d *= 1.0 - uShock.w * ss(uShock.z, uShock.z * 0.7, dg);
+  if (d < 0.004) discard;
+  float mu = dot(p, uSun);
+  float dSun = cloudField(normalize(p + uSun * 0.006), min(oct, 5.0));
+  float selfSh = exp(-dSun * 1.6);
+  float dg0 = acos(clamp(dot(p, uGZ), -1.0, 1.0));
+  float dustCover = uDust.y * ss(uDust.x, uDust.x - 0.2, dg0);
+  vec3 sunI = vec3(1.0, 0.97, 0.93) * 2.7 * sunTransmit(mu, dustCover * 2.5) * ss(-0.05, 0.06, mu);
+  vec3 col = vec3(0.92) * sunI * (0.25 + 0.75 * selfSh) * max(mu + 0.15, 0.0) / 1.15 + vec3(0.02, 0.03, 0.05) * ss(-0.2, 0.3, mu);
+  col = mix(col, col * vec3(0.45, 0.36, 0.3), dustCover);
+  col += vec3(1.0, 0.3, 0.07) * uDust.z * ss(uDust.x, uDust.x - 0.6, dg0) * 0.04;
+  float a = clamp(d * 0.95, 0.0, 1.0) * (1.0 - dustCover * 0.5);
+  gl_FragColor = vec4(col * a, a);
+}`;
+
+/* =====================================================================
+   ATMOSPHERE — single-scattering ray march (Rayleigh + Mie + impact
+   aerosol), composited as in-scatter + transmittance.
+   ===================================================================== */
+const ATMO_FS = /* glsl */`
+#include <common>
+uniform vec3 uSun, uCam, uGZ;
+uniform vec4 uDust;
+uniform float uSunI;
+varying vec3 vWorld;
+${GLSL_COMMON}
+const float RG = 1.0, RA = 1.0 + 100000.0 / 6371000.0;
+const float HR = 8000.0 / 6371000.0, HM = 1200.0 / 6371000.0, HD = 15000.0 / 6371000.0;
+const vec3 BR = vec3(5.8e-6, 13.5e-6, 33.1e-6) * 6371000.0;
+const float BM = 21e-6 * 6371000.0;
+const vec3 BD = vec3(1.0, 1.08, 1.2) * 3.0e-5 * 6371000.0;
+const vec3 DALB = vec3(0.42, 0.31, 0.21);
+vec2 rs(vec3 ro, vec3 rd, float r){ float b = dot(ro, rd), c = dot(ro, ro) - r * r, h = b * b - c; if (h < 0.0) return vec2(1e9, -1e9); h = sqrt(h); return vec2(-b - h, -b + h); }
+float dustAt(vec3 q){ if (uDust.y <= 0.0) return 0.0; float a = acos(clamp(dot(normalize(q), uGZ), -1.0, 1.0)); return uDust.y * ss(uDust.x, uDust.x - 0.2, a); }
+void main(){
+  vec3 ro = uCam, rd = normalize(vWorld - uCam);
+  vec2 ta = rs(ro, rd, RA);
+  if (ta.x > ta.y || ta.y < 0.0) discard;
+  vec2 tg = rs(ro, rd, RG);
+  float t0 = max(ta.x, 0.0), t1 = ta.y;
+  bool ground = tg.x < tg.y && tg.y > 0.0;
+  if (ground) t1 = min(t1, max(tg.x, 0.0));
+  const int NS = 16;
+  float dt = (t1 - t0) / float(NS);
+  float odR = 0.0, odM = 0.0, odD = 0.0;
+  vec3 sR = vec3(0.0), sM = vec3(0.0), sD = vec3(0.0);
+  for (int i = 0; i < NS; i++){
+    float t = t0 + dt * (float(i) + 0.5);
+    vec3 q = ro + rd * t;
+    float hg = max(length(q) - RG, 0.0);
+    float dd = dustAt(q);
+    float dR = exp(-hg / HR) * dt, dM = exp(-hg / HM) * dt, dD = dd * exp(-hg / HD) * dt;
+    odR += dR; odM += dM; odD += dD;
+    vec2 tlg = rs(q, uSun, RG);
+    if (tlg.x < tlg.y && tlg.x > 0.0) continue;
+    float lt = rs(q, uSun, RA).y / 4.0;
+    float lR = 0.0, lM = 0.0, lD = 0.0;
+    for (int j = 0; j < 4; j++){
+      vec3 s = q + uSun * lt * (float(j) + 0.5);
+      float hs = max(length(s) - RG, 0.0);
+      lR += exp(-hs / HR) * lt; lM += exp(-hs / HM) * lt; lD += dd * exp(-hs / HD) * lt;
+    }
+    vec3 att = exp(-(BR * (odR + lR) + BM * 1.1 * (odM + lM) + BD * (odD + lD)));
+    sR += att * dR; sM += att * dM; sD += att * dD;
+  }
+  float mu = dot(rd, uSun);
+  float pR = 3.0 / (16.0 * PI) * (1.0 + mu * mu);
+  float g = 0.76, g2 = g * g;
+  float pM = 3.0 / (8.0 * PI) * ((1.0 - g2) * (1.0 + mu * mu)) / ((2.0 + g2) * pow(1.0 + g2 - 2.0 * g * mu, 1.5));
+  float pD = 1.0 / (4.0 * PI) * (1.0 - 0.36) / pow(1.0 + 0.36 - 1.2 * mu, 1.5);
+  vec3 L = uSunI * (sR * BR * pR + sM * BM * pM + sD * BD * DALB * pD);
+  L += vec3(1.0, 0.25, 0.05) * uDust.z * odD * 6.0;
+  vec3 tr = exp(-(BR * odR + BM * 1.1 * odM + BD * odD));
+  float a = 1.0 - dot(tr, vec3(0.3333));
+  gl_FragColor = vec4(L, a);
+}`;
+const SHELL_VS = EARTH_VS;
+
+/* =====================================================================
+   SKY — procedural star field (blackbody colours), Milky Way, solar disk
+   ===================================================================== */
+const SKY_VS = /* glsl */`
+varying vec3 vDir;
+void main(){
+  vDir = position;
+  vec4 p = projectionMatrix * vec4(mat3(viewMatrix) * position, 1.0);
+  gl_Position = p.xyww;
+}`;
+const SKY_FS = /* glsl */`
+uniform vec3 uSun;
+varying vec3 vDir;
+${GLSL_COMMON}
+vec3 starLayer(vec3 d, float scale, float dens, float seed){
+  vec3 q = d * scale, id = floor(q), f = q - id;
+  vec3 h = hgrad(id + seed) * 0.5 + 0.5;
+  if (h.x > dens) return vec3(0.0);
+  vec3 sp = hgrad(id + seed + 17.0) * 0.32 + 0.5;
+  float px = max(fwidth(q.x) + fwidth(q.y), 1e-4);
+  float dist = length(f - sp);
+  float mag = pow(h.y, 14.0) * 5.0 + 0.004;
+  vec3 c = blackbody(mix(2800.0, 14000.0, h.z * h.z));
+  return c * mag * exp(-pow(dist / (0.6 * px), 2.0));
+}
+void main(){
+  vec3 d = normalize(vDir);
+  vec3 col = starLayer(d, 260.0, 0.22, 0.0) + starLayer(d, 520.0, 0.14, 31.0) * 0.6 + starLayer(d, 1100.0, 0.08, 77.0) * 0.4;
+  vec3 gn = normalize(vec3(0.32, 0.86, -0.4));
+  float b = dot(d, gn);
+  float band = exp(-b * b * 22.0) * (0.55 + 0.9 * fbm(d * 4.0, 5));
+  float lanes = ss(-0.05, 0.25, fbm(d * 9.0 + 3.0, 5) + b * 2.0);
+  col += vec3(0.55, 0.5, 0.46) * band * 0.022 * lanes;
+  col += starLayer(d, 1600.0, 0.6 * exp(-b * b * 30.0), 5.0) * 0.5;
+  float ca = dot(d, uSun);
+  col += vec3(1.0, 0.96, 0.9) * (60.0 * ss(0.999986, 0.9999895, ca) + 0.6 * exp(-(1.0 - ca) * 6000.0) + 0.03 * exp(-(1.0 - ca) * 120.0));
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+/* =====================================================================
+   ASTEROID — procedural rubble-pile mesh (fBm + crater field), shaded
+   with stagnation-point ablation heating on the leading face.
+   ===================================================================== */
+function fbmJS(x, y, z, oct) { let a = 0.5, s = 0; for (let i = 0; i < oct; i++) { s += a * noised(x, y, z)[0]; x *= 2.03; y *= 2.03; z *= 2.03; a *= 0.5; } return s; }
+function makeAsteroidGeometry(seed, detail = 5) {
+  const rnd = mulberry32(seed);
+  let geo = new THREE.IcosahedronGeometry(1, detail);
+  geo.deleteAttribute('normal'); geo.deleteAttribute('uv');
+  geo = mergeVertices(geo);
+  const pos = geo.attributes.position;
+  const craters = [];
+  for (let i = 0; i < 28; i++) {
+    const u = rnd() * 2 - 1, a = rnd() * Math.PI * 2, s = Math.sqrt(1 - u * u);
+    const rad = 0.07 + 0.38 * rnd() * rnd();
+    craters.push({ d: [s * Math.cos(a), u, s * Math.sin(a)], rad, depth: rad * 0.22 * (0.5 + rnd()) });
+  }
+  const ax = [1, 0.72 + 0.2 * rnd(), 0.58 + 0.18 * rnd()];
+  const norm = 1 / Math.cbrt(ax[0] * ax[1] * ax[2]);
+  const o = [rnd() * 60, rnd() * 60, rnd() * 60];
+  const shade = new Float32Array(pos.count);
+  for (let i = 0; i < pos.count; i++) {
+    let x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const l = Math.hypot(x, y, z); x /= l; y /= l; z /= l;
+    let r = 1 + 0.3 * fbmJS(x * 1.2 + o[0], y * 1.2 + o[1], z * 1.2 + o[2], 4) + 0.05 * fbmJS(x * 6 + o[1], y * 6 + o[2], z * 6 + o[0], 3);
+    let cs = 0;
+    for (const c of craters) {
+      const dd = Math.acos(Math.max(-1, Math.min(1, x * c.d[0] + y * c.d[1] + z * c.d[2]))) / c.rad;
+      if (dd < 1.4) { if (dd < 1) { r -= c.depth * (1 - dd * dd); cs += (1 - dd) * 0.5; } r += c.depth * 0.3 * Math.exp(-(((dd - 1) / 0.18) ** 2)); }
+    }
+    pos.setXYZ(i, x * r * ax[0] * norm, y * r * ax[1] * norm, z * r * ax[2] * norm);
+    shade[i] = Math.max(0, Math.min(1, 0.55 + 0.6 * fbmJS(x * 3 + 9, y * 3, z * 3, 3) - cs * 0.3));
+  }
+  geo.setAttribute('aShade', new THREE.BufferAttribute(shade, 1));
+  geo.computeVertexNormals();
+  geo.computeBoundingSphere();
+  return geo;
+}
+const ROCK_VS = /* glsl */`
+#include <common>
+#include <logdepthbuf_pars_vertex>
+attribute float aShade;
+varying vec3 vN, vObj, vW; varying float vShade;
+void main(){
+  vec4 lp = vec4(position, 1.0); vec3 ln = normal;
+  #ifdef USE_INSTANCING
+    lp = instanceMatrix * lp; ln = mat3(instanceMatrix) * ln;
+  #endif
+  vN = normalize(mat3(modelMatrix) * ln); vObj = position; vShade = aShade;
+  vec4 wp = modelMatrix * lp; vW = wp.xyz;
+  gl_Position = projectionMatrix * modelViewMatrix * lp;
+  #include <logdepthbuf_vertex>
+}`;
+const ROCK_FS = /* glsl */`
+#include <common>
+#include <logdepthbuf_pars_fragment>
+uniform vec3 uSun, uVel, uCol;
+uniform float uHeat, uTime, uMetal, uOpacity;
+varying vec3 vN, vObj, vW; varying float vShade;
+${GLSL_COMMON}
+void main(){
+  #include <logdepthbuf_fragment>
+  vec3 n = normalize(vN);
+  float tex = gnoise(vObj * 6.0) * 0.5 + gnoise(vObj * 21.0) * 0.25 + gnoise(vObj * 70.0) * 0.12;
+  vec3 alb = uCol * (0.7 + 0.6 * tex) * (0.7 + 0.5 * vShade);
+  float NdL = max(dot(n, uSun), 0.0);
+  vec3 V = normalize(cameraPosition - vW), H = normalize(uSun + V);
+  vec3 col = alb * (2.7 * NdL + 0.03 * (0.5 + 0.5 * dot(n, normalize(vW))));
+  col += uMetal * pow(max(dot(n, H), 0.0), 40.0) * 1.5 * NdL;
+  float lead = max(dot(n, uVel), 0.0);
+  float T = 1100.0 + 2900.0 * uHeat * pow(lead, 0.6);
+  float flick = 0.75 + 0.5 * gnoise(vObj * 9.0 + vec3(0.0, 0.0, uTime * 4.0));
+  col += blackbody(T) * bbLum(T) * 30.0 * uHeat * pow(lead, 1.3) * flick;
+  col += blackbody(1400.0) * uHeat * uHeat * 0.25 * (0.6 + 0.4 * tex);
+  gl_FragColor = vec4(col, uOpacity);
+}`;
+
+/* plasma sheath / bow shock — teardrop shell aligned with velocity (+Z) */
+const PLASMA_VS = /* glsl */`
+#include <common>
+#include <logdepthbuf_pars_vertex>
+uniform float uTail, uBow, uTime;
+varying vec3 vN, vV; varying float vZ;
+${GLSL_COMMON}
+void main(){
+  vec3 p = position;
+  float z = p.z;
+  if (z < 0.0){ float k = pow(-z, 1.4); p.xy *= mix(1.0, 0.25, k); p.z = z * (1.0 + uTail); }
+  else p.z = z * uBow;
+  p += normal * 0.07 * gnoise(position * 3.0 + vec3(0.0, 0.0, uTime * 9.0));
+  vZ = z;
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz);
+  gl_Position = projectionMatrix * mv;
+  #include <logdepthbuf_vertex>
+}`;
+const PLASMA_FS = /* glsl */`
+#include <common>
+#include <logdepthbuf_pars_fragment>
+uniform vec3 uColor; uniform float uInt;
+varying vec3 vN, vV; varying float vZ;
+float ss(float a, float b, float x){ float t = clamp((x - a) / (b - a), 0.0, 1.0); return t * t * (3.0 - 2.0 * t); }
+void main(){
+  #include <logdepthbuf_fragment>
+  float fr = 1.0 - abs(dot(normalize(vN), normalize(vV)));
+  float a = pow(fr, 1.6) * 0.85 + 0.12;
+  float front = ss(-1.0, 0.7, vZ);
+  gl_FragColor = vec4(uColor * uInt * a * (0.35 + 0.65 * front), 1.0);
+}`;
+
+/* =====================================================================
+   GPU PARTICLES — instanced camera-facing quads. Positions are stored
+   relative to an event origin and transformed with a CPU-computed
+   view-space origin (uOV) to keep float32 precision at metre scale.
+   ===================================================================== */
+function makeQuadGeometry(count, attrs) {
+  const g = new THREE.InstancedBufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0]), 3));
+  g.setIndex([0, 1, 2, 0, 2, 3]);
+  for (const [n, s] of Object.entries(attrs)) {
+    const a = new THREE.InstancedBufferAttribute(new Float32Array(count * s), s);
+    a.setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute(n, a);
+  }
+  g.instanceCount = count;
+  return g;
+}
+const PREMUL = { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor };
+
+const PARTICLE_FS_GLOW = /* glsl */`
+#include <common>
+#include <logdepthbuf_pars_fragment>
+varying vec3 vCol; varying vec2 vUv;
+void main(){
+  #include <logdepthbuf_fragment>
+  float r = dot(vUv, vUv); if (r > 1.0) discard;
+  gl_FragColor = vec4(vCol * exp(-r * 4.0) * (1.0 - r), 1.0);
+}`;
+const PARTICLE_FS_SMOKE = /* glsl */`
+#include <common>
+#include <logdepthbuf_pars_fragment>
+varying vec3 vCol; varying vec2 vUv; varying float vA, vSeed;
+${GLSL_COMMON}
+void main(){
+  #include <logdepthbuf_fragment>
+  float r = dot(vUv, vUv); if (r > 1.0) discard;
+  float n = gnoise(vec3(vUv * 2.2, vSeed * 17.0)) * 0.6 + gnoise(vec3(vUv * 5.0, vSeed * 31.0)) * 0.3;
+  float a = vA * ss(1.0, 0.15, r + n * 0.5);
+  if (a < 0.002) discard;
+  gl_FragColor = vec4(vCol * a, a);
+}`;
+
+const PARTICLE_FS_SOFT = /* glsl */`
+#include <common>
+#include <logdepthbuf_pars_fragment>
+varying vec3 vCol; varying vec2 vUv; varying float vA, vSeed;
+void main(){
+  #include <logdepthbuf_fragment>
+  float r = dot(vUv, vUv); if (r > 1.0) discard;
+  float a = vA * (1.0 - r) * (1.0 - r);
+  if (a < 0.002) discard;
+  gl_FragColor = vec4(vCol * a, a);
+}`;
+// entry trail: hot ionised wake (additive)
+const TRAIL_GLOW_VS = /* glsl */`
+#include <common>
+#include <logdepthbuf_pars_vertex>
+attribute vec3 aPos; attribute vec4 aData;   // birth, size, heat, seed
+uniform float uTime, uLife, uPix; uniform vec3 uOV;
+varying vec3 vCol; varying vec2 vUv;
+${GLSL_COMMON}
+void main(){
+  float age = uTime - aData.x, life = uLife * (0.5 + aData.w), k = age / life;
+  float alive = step(0.0, age) * step(k, 1.0);
+  float size = aData.y * (0.7 + 2.5 * sqrt(max(k, 0.0))) * alive;
+  vec4 mv = vec4(uOV + mat3(viewMatrix) * aPos, 1.0);
+  float minS = -mv.z * uPix * 1.6, dim = 1.0;
+  if (size > 0.0 && size < minS) { dim = max(size / minS, 0.35); size = minS; }
+  mv.xy += position.xy * size;
+  gl_Position = projectionMatrix * mv;
+  float T = mix(11000.0, 1500.0, sqrt(clamp(k, 0.0, 1.0))) * (0.55 + 0.45 * aData.z);
+  vCol = blackbody(T) * aData.z * pow(1.0 - clamp(k, 0.0, 1.0), 2.0) * 2.2 * dim;
+  vUv = position.xy;
+  #include <logdepthbuf_vertex>
+}`;
+// entry trail: persistent dust / smoke train (lit by the Sun)
+const TRAIL_SMOKE_VS = /* glsl */`
+#include <common>
+#include <logdepthbuf_pars_vertex>
+attribute vec3 aPos, aVel; attribute vec4 aData;   // birth, size, opacity, seed
+uniform float uTime, uLife; uniform vec3 uOV, uOrigin, uSun, uTint;
+varying vec3 vCol; varying vec2 vUv; varying float vA, vSeed;
+${GLSL_COMMON}
+void main(){
+  float age = uTime - aData.x, k = age / (uLife * (0.6 + 0.8 * aData.w));
+  float alive = step(0.0, age) * step(k, 1.0);
+  vec3 lp = aPos + aVel * age;
+  float size = aData.y * (1.0 + 5.0 * sqrt(max(k, 0.0))) * alive;
+  vec4 mv = vec4(uOV + mat3(viewMatrix) * lp, 1.0);
+  mv.xy += position.xy * size;
+  gl_Position = projectionMatrix * mv;
+  float mu = dot(normalize(uOrigin + lp), uSun);
+  vCol = uTint * (2.7 * sunTransmit(mu, 0.0) * ss(-0.04, 0.08, mu) * 0.55 + 0.015);
+  vA = aData.z * ss(0.0, 0.03, k) * pow(1.0 - clamp(k, 0.0, 1.0), 1.5);
+  vUv = position.xy; vSeed = aData.w;
+  #include <logdepthbuf_vertex>
+}`;
+// excavation-flow ejecta curtain: analytic ballistic flight over a curved, rotating-free Earth
+const EJECTA_VS = /* glsl */`
+#include <common>
+#include <logdepthbuf_pars_vertex>
+attribute vec4 aL;   // azimuth, launch radius (m), v_horizontal (m/s), v_vertical (m/s)
+attribute vec4 aM;   // launch time (s), size factor, seed, kind(0 rock / 1 water)
+uniform float uT, uSize, uLandFade;
+uniform vec3 uOV, uC, uE, uN, uSun;
+varying vec3 vCol; varying vec2 vUv; varying float vA, vSeed;
+${GLSL_COMMON}
+void main(){
+  float tau = uT - aM.x;
+  float vh = aL.z, vz = aL.w;
+  float geff = 9.81 * (1.0 - vh * vh / (9.81 * 6371000.0));
+  float tl = geff > 0.05 ? 2.0 * vz / geff : 1e9;
+  float tf = clamp(tau, 0.0, tl);
+  float s = aL.y + vh * tf;
+  float hgt = max(vz * tf - 0.5 * geff * tf * tf, 0.0);
+  float phi = s / 6371000.0, hu = hgt / 6371000.0;
+  vec3 u = uE * cos(aL.x) + uN * sin(aL.x);
+  float sh = sin(phi * 0.5);
+  vec3 rel = uC * (hu * cos(phi) - 2.0 * sh * sh) + u * (1.0 + hu) * sin(phi);
+  float landed = step(tl, tau);
+  float fade = landed > 0.5 ? exp(-(tau - tl) / uLandFade) : 1.0;
+  float alive = step(0.0, tau) * step(0.01, fade);
+  float size = uSize * aM.y * (1.0 + 0.8 * sqrt(clamp(tf / 300.0, 0.0, 4.0))) * alive;
+  vec4 mv = vec4(uOV + mat3(viewMatrix) * rel, 1.0);
+  mv.xy += position.xy * size;
+  gl_Position = projectionMatrix * mv;
+  float mu = dot(normalize(uC + rel), uSun);
+  vec3 light = 2.7 * sunTransmit(mu, 0.0) * ss(-0.04, 0.08, mu) * 0.6 + 0.02;
+  vec3 base = aM.w < 0.5 ? mix(vec3(0.16, 0.13, 0.1), vec3(0.36, 0.31, 0.26), aM.z) : vec3(0.85, 0.9, 0.95);
+  float hotFrac = aM.w < 0.5 ? step(0.55, aM.z) : 0.0;
+  float Tm = 2400.0 * exp(-max(tau, 0.0) / (4.0 + 25.0 * aM.z)) + 300.0;
+  vCol = base * light + blackbody(Tm) * bbLum(Tm) * 25.0 * hotFrac;
+  vA = (aM.w < 0.5 ? 0.85 : 0.55) * fade;
+  vUv = position.xy; vSeed = aM.z;
+  #include <logdepthbuf_vertex>
+}`;
+// rising debris / steam column and spreading dust cloud
+const PLUME_VS = /* glsl */`
+#include <common>
+#include <logdepthbuf_pars_vertex>
+attribute vec4 aP;   // azimuth, radial fraction, height fraction, seed
+uniform float uT, uR0, uH, uTr, uSpread, uSize, uFade;
+uniform vec3 uOV, uC, uE, uN, uSun, uTint;
+varying vec3 vCol; varying vec2 vUv; varying float vA, vSeed;
+${GLSL_COMMON}
+void main(){
+  float rise = 1.0 - exp(-uT / uTr);
+  float hgt = uH * aP.z * rise * (0.6 + 0.4 * aP.w);
+  float rad = uR0 * aP.y * (0.4 + 0.6 * rise) * (1.0 + uSpread * sqrt(uT / uTr) * aP.z);
+  vec3 u = uE * cos(aP.x) + uN * sin(aP.x);
+  vec3 rel = uC * hgt + u * rad;
+  float size = uSize * (0.6 + 0.8 * aP.w) * (0.5 + rise) * (1.0 + 0.5 * uSpread * sqrt(uT / uTr));
+  vec4 mv = vec4(uOV + mat3(viewMatrix) * rel, 1.0);
+  mv.xy += position.xy * size;
+  gl_Position = projectionMatrix * mv;
+  float mu = dot(normalize(uC + rel), uSun);
+  vCol = uTint * (2.7 * sunTransmit(mu, 0.0) * ss(-0.04, 0.08, mu) * 0.55 + 0.02);
+  vA = 0.5 * ss(0.0, 0.15, rise) * uFade;
+  vUv = position.xy; vSeed = aP.w;
+  #include <logdepthbuf_vertex>
+}`;
+
+/* =====================================================================
+   FIREBALL — turbulent displaced sphere, blackbody emission cooling
+   into a sunlit debris cloud.  SHOCK DOME — thin Fresnel shell.
+   ===================================================================== */
+const FIRE_VS = /* glsl */`
+#include <common>
+#include <logdepthbuf_pars_vertex>
+uniform float uTime, uTurb;
+varying vec3 vN, vV, vObj, vWn;
+${GLSL_COMMON}
+void main(){
+  vec3 p = position;
+  float d = gnoise(p * 2.3 + vec3(0.0, 0.0, uTime * 0.25)) * 0.12 + gnoise(p * 6.0 - uTime * 0.4) * 0.05;
+  p += normal * d * uTurb;
+  vObj = position;
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz);
+  vWn = normalize(mat3(modelMatrix) * normal);
+  gl_Position = projectionMatrix * mv;
+  #include <logdepthbuf_vertex>
+}`;
+const FIRE_FS = /* glsl */`
+#include <common>
+#include <logdepthbuf_pars_fragment>
+uniform float uTemp, uInt, uSmoke, uTime, uOpacity;
+uniform vec3 uSun, uSmokeCol;
+varying vec3 vN, vV, vObj, vWn;
+${GLSL_COMMON}
+void main(){
+  #include <logdepthbuf_fragment>
+  float facing = clamp(dot(normalize(vN), normalize(vV)), 0.0, 1.0);
+  float nz = fbm(vObj * 2.6 + vec3(0.0, 0.0, uTime * 0.35), 5);
+  float Tl = uTemp * (0.72 + 0.6 * (nz + 0.4)) * mix(0.7, 1.0, facing);
+  vec3 emis = blackbody(Tl) * bbLum(Tl) * uInt;
+  vec3 sm = uSmokeCol * (2.7 * max(dot(normalize(vWn), uSun) * 0.7 + 0.3, 0.0) * 0.55 + 0.03);
+  float edge = ss(0.0, 0.75, facing * 0.9 + nz * 0.6) * (0.75 + 0.5 * ss(-0.3, 0.3, nz));
+  float a = uOpacity * edge;
+  gl_FragColor = vec4(emis * a * (1.0 - uSmoke * 0.9) + sm * a * uSmoke, a * (0.55 + 0.45 * uSmoke));
+}`;
+const DOME_FS = /* glsl */`
+#include <common>
+#include <logdepthbuf_pars_fragment>
+uniform float uStr; uniform vec3 uSun;
+varying vec3 vN, vV, vObj, vWn;
+void main(){
+  #include <logdepthbuf_fragment>
+  float fr = 1.0 - abs(dot(normalize(vN), normalize(vV)));
+  float a = pow(fr, 6.0) * uStr;
+  vec3 c = vec3(0.85, 0.9, 1.0) * (0.15 + 1.6 * max(dot(normalize(vWn), uSun), 0.0));
+  gl_FragColor = vec4(c * a * 0.5, a * 0.35);
+}`;
+
+/* =====================================================================
+   POST — shock-front refraction, flash, chromatic aberration, vignette
+   ===================================================================== */
+const FX_SHADER = {
+  uniforms: {
+    tDiffuse: { value: null }, uRes: { value: new THREE.Vector2(1, 1) }, uTime: { value: 0 },
+    uShockC: { value: new THREE.Vector2(0.5, 0.5) }, uShockR: { value: 0 }, uShockW: { value: 0.02 }, uShockAmp: { value: 0 },
+    uFlash: { value: 0 }, uFlashCol: { value: new THREE.Color(1, 0.9, 0.8) }, uAberr: { value: 0.0015 },
+  },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: /* glsl */`
+    uniform sampler2D tDiffuse; uniform vec2 uRes, uShockC; uniform float uTime, uShockR, uShockW, uShockAmp, uFlash, uAberr; uniform vec3 uFlashCol;
+    varying vec2 vUv;
+    void main(){
+      vec2 uv = vUv, asp = vec2(uRes.x / uRes.y, 1.0);
+      vec2 d = (uv - uShockC) * asp; float r = length(d);
+      float ring = exp(-pow((r - uShockR) / max(uShockW, 1e-4), 2.0));
+      uv -= (d / max(r, 1e-5)) / asp * ring * uShockAmp;
+      vec2 cd = uv - 0.5; float ca = uAberr * (1.0 + uFlash * 1.5);
+      vec3 col = vec3(texture2D(tDiffuse, uv - cd * ca).r, texture2D(tDiffuse, uv).g, texture2D(tDiffuse, uv + cd * ca).b);
+      col += uFlashCol * uFlash;
+      col *= 1.0 - 0.55 * dot(cd, cd);
+      uvec2 q = uvec2(gl_FragCoord.xy) * uvec2(1597334673u, 3812015801u) ^ uvec2(uint(uTime * 60.0) * 2654435769u);
+      uint hh = (q.x ^ q.y) * 1597334673u; hh ^= hh >> 16u;
+      col *= 1.0 + (float(hh) / 4294967295.0 - 0.5) * 0.03;
+      gl_FragColor = vec4(max(col, 0.0), 1.0);
+    }`,
+};
+
+/* =====================================================================
+   RENDERER / SCENE
+   ===================================================================== */
+const canvas = document.getElementById('gl');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 1e-7, 60);
+
+// shared uniforms (one object referenced by every material that needs it)
+const SU = {
+  uSun: { value: SUN }, uCam: { value: new THREE.Vector3() }, uTime: { value: 0 },
+  uGZ: { value: new THREE.Vector3(0, 0, 1) }, uShock: { value: new THREE.Vector4() }, uDust: { value: new THREE.Vector4() },
+  uFlash: { value: new THREE.Vector4() }, uPixA: { value: 0.001 }, uFlashCol: { value: new THREE.Color(1, 0.8, 0.6) }, uTsu: { value: new THREE.Vector4() },
+};
+// simulated aerosol veil state (x: angular extent, y: opacity, z: re-entry glow); copied to uDust each frame
+// so the veil can be hidden for inspecting the surface without altering the simulation
+const dustState = new THREE.Vector4();
+const vec4Array = () => Array.from({ length: MAXC }, () => new THREE.Vector4());
+const earthMat = new THREE.ShaderMaterial({
+  vertexShader: EARTH_VS, fragmentShader: EARTH_FS,
+  uniforms: { ...SU, uCount: { value: 0 }, uCA: { value: vec4Array() }, uCB: { value: vec4Array() }, uCC: { value: vec4Array() }, uCD: { value: vec4Array() }, uCE: { value: vec4Array() } },
+});
+const earth = new THREE.Mesh(new THREE.SphereGeometry(1, 640, 320), earthMat);
+scene.add(earth);
+const cloudMat = new THREE.ShaderMaterial({ vertexShader: EARTH_VS, fragmentShader: CLOUD_FS, uniforms: SU, transparent: true, depthWrite: false, ...PREMUL });
+const clouds = new THREE.Mesh(new THREE.SphereGeometry(1 + 9000 * U, 320, 160), cloudMat);
+clouds.renderOrder = 1; scene.add(clouds);
+const atmoMat = new THREE.ShaderMaterial({ vertexShader: SHELL_VS, fragmentShader: ATMO_FS, uniforms: { ...SU, uSunI: { value: 6 } }, transparent: true, depthWrite: false, depthTest: false, side: THREE.FrontSide, ...PREMUL });
+const atmo = new THREE.Mesh(new THREE.SphereGeometry(1 + 100000 * U, 160, 80), atmoMat);
+atmo.renderOrder = 2; scene.add(atmo);
+const sky = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16), new THREE.ShaderMaterial({ vertexShader: SKY_VS, fragmentShader: SKY_FS, uniforms: SU, side: THREE.BackSide, depthTest: false, depthWrite: false }));
+sky.renderOrder = -10; sky.frustumCulled = false; scene.add(sky);
+
+// post-processing
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.55, 0.5, 0.9);
+composer.addPass(bloom);
+const fxPass = new ShaderPass(FX_SHADER);
+composer.addPass(fxPass);
+composer.addPass(new OutputPass());
+function onResize() {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+  const pr = renderer.getPixelRatio();
+  fxPass.uniforms.uRes.value.set(innerWidth * pr, innerHeight * pr);
+}
+addEventListener('resize', onResize); onResize();
+
+/* =====================================================================
+   GLOBE CAMERA — focus point (lat, lon, altitude) + range / tilt /
+   heading. User input and cinematic choreography drive the same state.
+   ===================================================================== */
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const wrapPi = a => Math.atan2(Math.sin(a), Math.cos(a));
+const YAX = new THREE.Vector3(0, 1, 0);
+function frameAt(P) { const E = new THREE.Vector3().crossVectors(YAX, P); if (E.lengthSq() < 1e-10) E.set(1, 0, 0); E.normalize(); const N = new THREE.Vector3().crossVectors(P, E); return { E, N }; }
+function latLonOf(p) { const l = p.length(); return { lat: Math.asin(clamp(p.y / l, -1, 1)), lon: Math.atan2(p.x, p.z), alt: l - 1 }; }
+function dirOf(lat, lon) { return new THREE.Vector3(Math.cos(lat) * Math.sin(lon), Math.sin(lat), Math.cos(lat) * Math.cos(lon)); }
+class GlobeCam {
+  constructor(cam, dom) {
+    this.cam = cam;
+    this.s = { lat: 0.3, lon: 0.42, alt: 0, range: 3200e3 * U, tilt: 0.9, head: 0.25 };
+    this.t = { ...this.s };
+    this.k = 6; this.cinematic = false; this.drag = null;
+    this.onUser = null; this.onClick = null;
+    dom.addEventListener('contextmenu', e => e.preventDefault());
+    dom.addEventListener('pointerdown', e => {
+      this.drag = { x: e.clientX, y: e.clientY, b: e.button, moved: 0 };
+      dom.setPointerCapture(e.pointerId);
+      if (this.cinematic && this.onUser) this.onUser();
+    });
+    dom.addEventListener('pointermove', e => {
+      if (!this.drag) return;
+      const dx = e.clientX - this.drag.x, dy = e.clientY - this.drag.y;
+      this.drag.x = e.clientX; this.drag.y = e.clientY; this.drag.moved += Math.abs(dx) + Math.abs(dy);
+      if (this.drag.moved < 3) return;
+      if (this.drag.b === 2 || e.shiftKey) {
+        this.t.head -= dx * 0.005; this.t.tilt = clamp(this.t.tilt + dy * 0.004, 0, 1.48);
+      } else {
+        const sc = this.t.range * 2 * Math.tan(this.cam.fov * Math.PI / 360) / innerHeight / (1 + this.t.alt);
+        const ch = Math.cos(this.t.head), sh = Math.sin(this.t.head);
+        this.t.lat = clamp(this.t.lat + sc * (dy * ch + dx * sh), -1.5, 1.5);
+        this.t.lon += sc * (dy * sh - dx * ch) / Math.max(Math.cos(this.t.lat), 0.05);
+      }
+    });
+    dom.addEventListener('pointerup', e => {
+      if (this.drag && this.drag.moved < 4 && this.drag.b === 0 && this.onClick) this.onClick(e);
+      this.drag = null;
+    });
+    dom.addEventListener('wheel', e => {
+      e.preventDefault();
+      if (this.cinematic && this.onUser) this.onUser();
+      this.t.range = clamp(this.t.range * Math.exp(e.deltaY * 0.0012), 60 * U, 9);
+    }, { passive: false });
+  }
+  focusOn(p, range, tilt, head) { const l = latLonOf(p); Object.assign(this.t, { lat: l.lat, lon: this.s.lon + wrapPi(l.lon - this.s.lon), alt: l.alt }); if (range !== undefined) this.t.range = range; if (tilt !== undefined) this.t.tilt = tilt; if (head !== undefined) this.t.head = this.s.head + wrapPi(head - this.s.head); }
+  update(dt) {
+    const f = 1 - Math.exp(-dt * this.k), s = this.s, t = this.t;
+    s.lat += (t.lat - s.lat) * f; s.lon += wrapPi(t.lon - s.lon) * f; s.alt += (t.alt - s.alt) * f;
+    s.range = Math.exp(Math.log(s.range) + (Math.log(t.range) - Math.log(s.range)) * f);
+    s.tilt += (t.tilt - s.tilt) * f; s.head += wrapPi(t.head - s.head) * f;
+    const up = dirOf(s.lat, s.lon), { E, N } = frameAt(up);
+    const F = up.clone().multiplyScalar(1 + s.alt);
+    const hd = N.clone().multiplyScalar(Math.cos(s.head)).addScaledVector(E, Math.sin(s.head));
+    const off = up.clone().multiplyScalar(Math.cos(s.tilt)).addScaledVector(hd, -Math.sin(s.tilt)).multiplyScalar(s.range);
+    const pos = F.clone().add(off);
+    const minR = 1 + 40 * U;
+    if (pos.length() < minR) pos.setLength(minR);
+    this.cam.position.copy(pos);
+    this.cam.up.copy(up.clone().multiplyScalar(Math.sin(s.tilt)).addScaledVector(hd, Math.cos(s.tilt)).normalize());
+    this.cam.lookAt(F);
+    this.focus = F;
+  }
+}
+const gcam = new GlobeCam(camera, canvas);
+
+/* =====================================================================
+   UI / PARAMETERS
+   ===================================================================== */
+const $ = id => document.getElementById(id);
+const COMPS = {
+  comet: { rho: 600, logY: 4.0, Q: 2.5e6, col: [0.075, 0.07, 0.065], metal: 0.0 },
+  carb: { rho: 2200, logY: 5.6, Q: 6e6, col: [0.07, 0.065, 0.06], metal: 0.0 },
+  stony: { rho: 3300, logY: 6.3, Q: 8e6, col: [0.22, 0.19, 0.16], metal: 0.05 },
+  stonyiron: { rho: 5000, logY: 7.2, Q: 8e6, col: [0.27, 0.25, 0.23], metal: 0.4 },
+  iron: { rho: 7800, logY: 7.7, Q: 8e6, col: [0.3, 0.29, 0.28], metal: 0.9 },
+};
+const PRESETS = {
+  chelyabinsk: { L: 19, comp: 'stony', rho: 3300, logY: 6.0, v: 19.0, ang: 18, want: 'land' },
+  tunguska: { L: 60, comp: 'stony', rho: 3000, logY: 6.3, v: 15, ang: 35, want: 'land' },
+  barringer: { L: 50, comp: 'iron', rho: 7800, logY: 7.7, v: 12.8, ang: 45, want: 'land' },
+  ries: { L: 1500, comp: 'stony', rho: 3300, logY: 6.3, v: 20, ang: 45, want: 'land' },
+  apophis: { L: 370, comp: 'stony', rho: 3200, logY: 6.3, v: 12.6, ang: 45, want: null },
+  eltanin: { L: 1500, comp: 'stony', rho: 3000, logY: 6.3, v: 20, ang: 45, want: 'ocean' },
+  chicxulub: { L: 10000, comp: 'carb', rho: 2600, logY: 5.6, v: 20, ang: 60, want: 'land' },
+  comet: { L: 5000, comp: 'comet', rho: 600, logY: 4.0, v: 51, ang: 45, want: null },
+};
+const LMIN = 5, LMAX = 30000;
+const sliderToL = s => LMIN * Math.pow(LMAX / LMIN, s / 1000);
+const LToSlider = L => 1000 * Math.log(L / LMIN) / Math.log(LMAX / LMIN);
+const site = { P: dirOf(0.3, 0.42), info: null };
+function params() {
+  const comp = COMPS[$('comp').value];
+  return { L: sliderToL(+$('diam').value), rho: +$('dens').value, Y: Math.pow(10, +$('str').value), Q: comp.Q, v: +$('vel').value * 1000, theta: +$('ang').value, az: +$('az').value, comp: $('comp').value };
+}
+function travelDir(P, azDeg) { const { E, N } = frameAt(P); const a = azDeg * Math.PI / 180; return N.multiplyScalar(-Math.cos(a)).addScaledVector(E, -Math.sin(a)).normalize(); }
+function nearestSurface(P, wantOcean) {
+  if (surfaceAt(P).ocean === wantOcean) return P.clone();
+  const { E, N } = frameAt(P);
+  for (let r = 0.01; r < 2.5; r += 0.012) for (let k = 0; k < 36; k++) {
+    const a = k / 36 * Math.PI * 2;
+    const q = P.clone().multiplyScalar(Math.cos(r)).addScaledVector(E, Math.sin(r) * Math.cos(a)).addScaledVector(N, Math.sin(r) * Math.sin(a)).normalize();
+    const s = surfaceAt(q);
+    if (s.ocean === wantOcean && (wantOcean ? s.depth > 3000 : s.elev > 80)) return q;
+  }
+  return P.clone();
+}
+function setSite(P) {
+  site.P.copy(P).normalize(); site.info = surfaceAt(site.P);
+  const l = latLonOf(site.P), deg = 180 / Math.PI;
+  $('site').innerHTML = `${Math.abs(l.lat * deg).toFixed(2)}°${l.lat >= 0 ? 'N' : 'S'} &nbsp;${Math.abs(l.lon * deg).toFixed(2)}°${l.lon >= 0 ? 'E' : 'W'}` +
+    `<span class="pill ${site.info.ocean ? 'ocean' : 'land'}">${site.info.ocean ? 'OCEAN' : 'LAND'}</span>`;
+  $('targetInfo').innerHTML = site.info.ocean ? `Sea water (1000 kg/m³) over basalt · depth <b style="color:#eef">${fmtLen(site.info.depth)}</b>` :
+    `Crystalline crust (2750 kg/m³) · elevation <b style="color:#eef">${fmtLen(site.info.elev)}</b>`;
+  scheduleScenario();
+}
+function syncLabels() {
+  const p = params();
+  $('vDiam').textContent = fmtLen(p.L); $('vDens').textContent = p.rho + ' kg/m³';
+  $('vStr').textContent = fmtSci(p.Y, ' Pa'); $('vVel').textContent = (p.v / 1000).toFixed(1) + ' km/s';
+  $('vAng').textContent = p.theta + '°'; $('vAz').textContent = p.az + '°';
+  $('vSpeed').textContent = Math.pow(2, +$('speed').value).toFixed(2) + '×';
+}
+function applyPreset(name) {
+  const pr = PRESETS[name]; if (!pr) return;
+  $('diam').value = LToSlider(pr.L); $('comp').value = pr.comp; $('dens').value = pr.rho; $('str').value = pr.logY; $('vel').value = pr.v; $('ang').value = pr.ang;
+  if (pr.want) { const q = nearestSurface(site.P, pr.want === 'ocean'); if (!q.equals(site.P)) { setSite(q); gcam.focusOn(q); } }
+  syncLabels(); scheduleScenario();
+}
+$('preset').addEventListener('change', e => applyPreset(e.target.value));
+$('comp').addEventListener('change', () => { const c = COMPS[$('comp').value]; $('dens').value = c.rho; $('str').value = c.logY; $('preset').value = 'custom'; syncLabels(); scheduleScenario(); });
+for (const id of ['diam', 'dens', 'str', 'vel', 'ang', 'az']) $(id).addEventListener('input', () => { if (id !== 'az') $('preset').value = 'custom'; syncLabels(); scheduleScenario(); });
+$('speed').addEventListener('input', syncLabels);
+$('cine').addEventListener('change', () => { gcam.cinematic = $('cine').checked && !!event_; });
+
+/* ---------- ground-zero marker, predicted damage rings, trajectory preview ---------- */
+const marker = new THREE.Group(); scene.add(marker);
+const markerRing = new THREE.Mesh(new THREE.RingGeometry(0.75, 1, 64), new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide }));
+const markerDot = new THREE.Mesh(new THREE.CircleGeometry(0.18, 24), new THREE.MeshBasicMaterial({ color: 0xffd090, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+marker.add(markerRing, markerDot); marker.renderOrder = 6; markerRing.renderOrder = 6; markerDot.renderOrder = 6;
+function makeLoop(color) { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(129 * 3), 3)); const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.75, depthWrite: false })); l.renderOrder = 6; l.frustumCulled = false; scene.add(l); return l; }
+const dmgRings = [makeLoop(0xff3b2f), makeLoop(0xff9a3a), makeLoop(0xffe070)];
+function setLoop(line, P, r) {
+  const a = line.geometry.attributes.position; const { E, N } = frameAt(P); const ang = r / RE;
+  line.visible = r > 0;
+  for (let i = 0; i <= 128; i++) { const t = i / 128 * Math.PI * 2; const q = P.clone().multiplyScalar(Math.cos(ang)).addScaledVector(E, Math.sin(ang) * Math.cos(t)).addScaledVector(N, Math.sin(ang) * Math.sin(t)).multiplyScalar(1 + 300 * U); a.setXYZ(i, q.x, q.y, q.z); }
+  a.needsUpdate = true; line.geometry.computeBoundingSphere();
+}
+const trajGeo = new THREE.BufferGeometry(); trajGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(600 * 3), 3));
+const trajLine = new THREE.Line(trajGeo, new THREE.LineDashedMaterial({ color: 0xffb060, dashSize: 0.004, gapSize: 0.003, transparent: true, opacity: 0.8, depthWrite: false }));
+trajLine.frustumCulled = false; trajLine.renderOrder = 6; scene.add(trajLine);
+
+// maps the 2-D trajectory plane onto the globe so that the event point lands on ground zero
+function makeMapper(sim, P, D) {
+  const e = sim.S[sim.iEvt], phiEnd = Math.atan2(e.Y, e.X);
+  const rel = (X, Y) => { const rho = Math.hypot(X, Y) / RE, a = Math.atan2(Y, X) - phiEnd, sh = Math.sin(a / 2); return P.clone().multiplyScalar((rho - 1) - rho * 2 * sh * sh).addScaledVector(D, Math.sin(a) * rho); };
+  const world = (X, Y) => rel(X, Y).add(P);
+  const s0 = sim.S[0], v0 = Math.hypot(s0.X, s0.Y);
+  const dx = -Math.sin(sim.theta0), dy = Math.cos(sim.theta0);
+  const approachRel = dist => rel(s0.X - dx * dist, s0.Y - dy * dist);
+  return { rel, world, approachRel, v0 };
+}
+let scenario = null, scenarioDirty = true;
+let showPreview = true;
+function scheduleScenario() { scenarioDirty = true; showPreview = true; }
+function updateScenario() {
+  scenarioDirty = false;
+  const p = params();
+  scenario = computeScenario(p, site.info || surfaceAt(site.P));
+  scenario.sim.theta0 = p.theta * Math.PI / 180;
+  scenario.P = site.P.clone(); scenario.D = travelDir(site.P, p.az); scenario.map = makeMapper(scenario.sim, scenario.P, scenario.D);
+  // preview path
+  const a = trajGeo.attributes.position; let n = 0;
+  for (let i = 0; i <= 60; i++) { const q = scenario.map.approachRel((60 - i) / 60 * 1500e3).add(scenario.P); a.setXYZ(n++, q.x, q.y, q.z); }
+  const S = scenario.sim.S, step = Math.max(1, Math.ceil(scenario.sim.iEvt / 500));
+  for (let i = 0; i <= scenario.sim.iEvt && n < 599; i += step) { const q = scenario.map.world(S[i].X, S[i].Y); a.setXYZ(n++, q.x, q.y, q.z); }
+  const qe = scenario.map.world(S[scenario.sim.iEvt].X, S[scenario.sim.iEvt].Y); a.setXYZ(n++, qe.x, qe.y, qe.z);
+  a.needsUpdate = true; trajGeo.setDrawRange(0, n); trajLine.computeLineDistances();
+  setLoop(dmgRings[0], site.P, scenario.r20psi); setLoop(dmgRings[1], site.P, scenario.r5psi); setLoop(dmgRings[2], site.P, scenario.r1psi);
+  renderResults(scenario);
+  drawChart(scenario.sim, null);
+}
+function renderResults(o) {
+  const s = o.sim, c = o.crater, rows = [];
+  const R = (k, v) => rows.push(`<tr><td>${k}</td><td>${v}</td></tr>`);
+  const H = t => rows.push(`<tr><td colspan="2" style="color:#7fd4ff;font-size:9.5px;letter-spacing:.14em;padding-top:7px">${t}</td></tr>`);
+  H('ENERGY');
+  R('Mass', fmtMass(o.m0)); R('Kinetic energy', fmtE(o.E0)); R('', fmtSci(o.E0, ' J')); R('≈ Hiroshima bombs', fmtSci(o.E0 / (15 * KT)));
+  H('ATMOSPHERIC ENTRY');
+  R('Peak ram pressure', fmtSci(s.qMax, ' Pa'));
+  R('Breakup altitude', s.broke ? fmtLen(s.zBreak) : 'intact');
+  const reg = { impact: 'Surface impact (intact)', fragmented: 'Fragmented — surface impact', airburst: 'AIRBURST', grazer: 'Grazer — skips back to space' }[s.regime];
+  R('Outcome', `<b style="color:#ffb27a">${reg}</b>`);
+  if (o.isImpact) { R('Impact velocity', (s.vImpact / 1000).toFixed(2) + ' km/s'); R('Energy at surface', fmtE(o.Eimp)); R('Energy lost in atmosphere', Math.max(0, 100 * (1 - o.Eimp / o.E0)).toFixed(1) + ' %'); }
+  else if (s.regime === 'airburst') { R('Burst altitude', fmtLen(o.zb)); R('Energy released in air', fmtE(o.Eair)); }
+  if (c) {
+    H('CRATER');
+    if (o.site.ocean) { R('Water cavity (transient)', fmtLen(c.Dtcw)); R('Velocity at seafloor', (c.vSeafloor / 1000).toFixed(2) + ' km/s'); }
+    R('Transient crater', fmtLen(c.Dtc)); R('Final crater diameter', fmtLen(c.Dfr)); R('Rim-to-floor depth', fmtLen(c.dfr)); R('Morphology', c.morph);
+    R('Impact melt volume', c.Vmelt > 1e9 ? (c.Vmelt / 1e9).toPrecision(3) + ' km³' : fmtSci(c.Vmelt, ' m³'));
+    if (c.Dtc > 0) R('Ejecta ≥ 1 m thick to', fmtLen(c.r1m));
+  }
+  if (s.regime !== 'grazer') {
+    H('THERMAL & BLAST');
+    R('Fireball radius', fmtLen(o.Rf)); R('2nd-degree burns to', fmtLen(o.rBurn2)); R('Clothing ignites to', fmtLen(o.rIgnite));
+    R('<span style="color:#ffe070">●</span> 1 psi — glass shatters', fmtLen(o.r1psi)); R('<span style="color:#ff9a3a">●</span> 5 psi — buildings collapse', fmtLen(o.r5psi)); R('<span style="color:#ff3b2f">●</span> 20 psi — total destruction', fmtLen(o.r20psi));
+  }
+  if (o.isImpact) {
+    H('GEOPHYSICAL');
+    R('Seismic magnitude (Richter)', o.seismicM.toFixed(1));
+    if (c && c.tsuA) { R('Tsunami wave at 100 km', fmtLen(c.tsuA(1e5))); R('Tsunami wave at 1000 km', fmtLen(c.tsuA(1e6))); R('Tsunami travel to 1000 km', fmtTime(1e6 / c.tsuC)); }
+  }
+  R('Earth Δv from momentum', fmtSci(o.dvEarth * 1e9, ' nm/s'));
+  R('Mean recurrence interval', fmtYears(o.recurrence));
+  $('resTable').innerHTML = rows.join('');
+  const gl = ['<b>Local event.</b> Damage confined to the immediate area.', '<b>Regional catastrophe.</b> Devastation over tens to hundreds of kilometres.',
+    '<b>Global climate disruption.</b> Stratospheric dust and soot dim sunlight worldwide for months to years; agriculture collapses.',
+    '<b>Mass-extinction event.</b> Global ejecta re-entry ignites wildfires, impact winter lasts years; K-Pg-scale biosphere collapse.'][o.global];
+  $('verdict').innerHTML = s.regime === 'grazer' ? '<b>Earth-grazing fireball.</b> The body skims the upper atmosphere and returns to space.' : gl;
+}
+
+/* ---------- HUD energy-deposition chart ---------- */
+const chart = $('chart'), cx = chart.getContext('2d');
+function drawChart(sim, zCur, depFrac) {
+  const W = chart.width, Hh = chart.height; cx.clearRect(0, 0, W, Hh);
+  const pad = 30, zMax = 120;
+  let mx = 0; for (const b of sim.bins) mx = Math.max(mx, b);
+  if (mx <= 0) return;
+  const lmin = Math.log10(mx) - 5;
+  cx.strokeStyle = 'rgba(140,180,255,.18)'; cx.fillStyle = '#7d8aa3'; cx.font = '18px Segoe UI'; cx.lineWidth = 1;
+  for (let z = 0; z <= zMax; z += 30) { const y = Hh - 8 - (z / zMax) * (Hh - 24); cx.beginPath(); cx.moveTo(pad, y); cx.lineTo(W - 4, y); cx.stroke(); cx.fillText(z + '', 2, y + 6); }
+  cx.fillText('km', 2, 16); cx.fillText('dE/dz (log)', W - 110, 18);
+  cx.beginPath();
+  for (let k = 0; k < sim.bins.length; k++) {
+    const z = k + 0.5; if (z > zMax) break;
+    const v = sim.bins[k] > 0 ? (Math.log10(sim.bins[k]) - lmin) / 5 : 0;
+    const x = pad + clamp(v, 0, 1) * (W - pad - 6), y = Hh - 8 - (z / zMax) * (Hh - 24);
+    k === 0 ? cx.moveTo(x, y) : cx.lineTo(x, y);
+  }
+  cx.strokeStyle = '#ff9a4a'; cx.lineWidth = 2.5; cx.stroke();
+  if (zCur !== null && zCur !== undefined) {
+    const y = Hh - 8 - (clamp(zCur / 1000, 0, zMax) / zMax) * (Hh - 24);
+    cx.strokeStyle = '#7fd4ff'; cx.lineWidth = 2; cx.beginPath(); cx.moveTo(pad, y); cx.lineTo(W - 4, y); cx.stroke();
+    cx.fillStyle = '#7fd4ff'; cx.fillText((zCur / 1000).toFixed(1) + ' km', W - 100, y - 5);
+  }
+}
+
+/* ---------- picking ground zero ---------- */
+const ray = new THREE.Raycaster();
+gcam.onClick = e => {
+  if (event_ && !event_.done) return;
+  const m = new THREE.Vector2(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(m, camera);
+  const o = ray.ray.origin, d = ray.ray.direction, b = o.dot(d), c = o.lengthSq() - 1, h = b * b - c;
+  if (h < 0) return;
+  const t = -b - Math.sqrt(h); if (t < 0) return;
+  setSite(o.clone().addScaledVector(d, t));
+  $('hint').style.opacity = 0;
+};
+gcam.onUser = () => { gcam.cinematic = false; $('cine').checked = false; gcam.t = { ...gcam.s }; gcam.k = 6; };
+
+/* =====================================================================
+   PERMANENT SURFACE ALTERATION — crater / scar records -> earth uniforms
+   ===================================================================== */
+const craters = [];
+function packCraters() {
+  const u = earthMat.uniforms;
+  for (let i = 0; i < MAXC; i++) {
+    const r = craters[i];
+    if (!r) { for (const k of ['uCA', 'uCB', 'uCC', 'uCD', 'uCE']) u[k].value[i].set(0, 0, 0, 0); continue; }
+    u.uCA.value[i].set(r.c.x, r.c.y, r.c.z, r.R);
+    u.uCB.value[i].set(r.d, r.hr, r.Rt, r.dt);
+    u.uCC.value[i].set(r.collapse, r.melt, Math.max(r.reach, 1.0), r.type);
+    u.uCD.value[i].set(r.scorchR, r.blastR, r.upAz, r.obliq);
+    u.uCE.value[i].set(r.peak, r.ring, r.cplx, r.seed);
+  }
+  u.uCount.value = craters.length;
+}
+const V3 = THREE.Vector3;
+const ZAX = new V3(0, 0, 1);
+const ss = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+function pixAngle() { return 2 * Math.tan(camera.fov * Math.PI / 360) / (innerHeight * renderer.getPixelRatio()); }
+
+/* =====================================================================
+   IMPACT EVENT — owns every transient GPU resource of one launch
+   ===================================================================== */
+class ImpactEvent {
+  constructor(sc) {
+    this.sc = sc; this.sim = sc.sim;
+    const sim = this.sim;
+    this.P = sc.P.clone(); this.D = sc.D.clone();
+    const f = frameAt(this.P); this.E = f.E; this.N = f.N;
+    this.map = sc.map;
+    this.group = new THREE.Group(); scene.add(this.group);
+    this.rnd = mulberry32((Math.random() * 1e9) | 0);
+    this.phase = 'approach'; this.w = 0; this.done = false;
+    this.Wapp = 4.0; this.Sapp = 2500e3;
+    this.tEntryEnd = sim.regime === 'grazer' ? sim.S[sim.S.length - 1].t : sim.tEvt;
+    this.Wentry = clamp(3 + 2 * Math.log(1 + this.tEntryEnd), 4.5, 12);
+    this.entryRate = this.tEntryEnd / this.Wentry;
+    this.rel = sim.S.map(s => this.map.rel(s.X, s.Y));
+    this.vdir = this.rel[Math.min(1, this.rel.length - 1)].clone().sub(this.rel[0]).normalize();
+    this.lastRel = null; this.shake = 0;
+    const comp = COMPS[sc.par.comp];
+    this.headTravel = Math.atan2(this.D.dot(this.E), this.D.dot(this.N));
+    // --- asteroid & fragments
+    this.astGeo = makeAsteroidGeometry((this.rnd() * 1e9) | 0, sc.par.L > 2000 ? 6 : 5);
+    const rockU = () => ({ uSun: SU.uSun, uVel: { value: new V3() }, uCol: { value: new THREE.Color(...comp.col) }, uHeat: { value: 0 }, uTime: SU.uTime, uMetal: { value: comp.metal }, uOpacity: { value: 1 } });
+    this.rockMat = new THREE.ShaderMaterial({ vertexShader: ROCK_VS, fragmentShader: ROCK_FS, uniforms: rockU(), transparent: true });
+    this.ast = new THREE.Mesh(this.astGeo, this.rockMat); this.ast.renderOrder = 10; this.ast.frustumCulled = false;
+    this.group.add(this.ast);
+    this.fragMat = new THREE.ShaderMaterial({ vertexShader: ROCK_VS, fragmentShader: ROCK_FS, uniforms: rockU(), transparent: true });
+    this.NF = 48;
+    this.frag = new THREE.InstancedMesh(this.astGeo, this.fragMat, this.NF); this.frag.visible = false; this.frag.renderOrder = 10; this.frag.frustumCulled = false;
+    this.group.add(this.frag);
+    this.fragOff = Array.from({ length: this.NF }, () => ({ a: this.rnd() * Math.PI * 2, r: Math.sqrt(this.rnd()), along: this.rnd(), s: 0.08 + 0.3 * this.rnd() ** 2, q: new THREE.Quaternion().setFromEuler(new THREE.Euler(this.rnd() * 6, this.rnd() * 6, this.rnd() * 6)) }));
+    this.spinAxis = new V3(this.rnd() - 0.5, this.rnd() - 0.5, this.rnd() - 0.5).normalize();
+    this.spinRate = 0.3 + this.rnd() * 0.8;
+    // --- plasma sheath (inner shock layer + outer wake)
+    this.plasmaGeo = new THREE.SphereGeometry(1, 48, 32);
+    const pm = (col) => new THREE.ShaderMaterial({ vertexShader: PLASMA_VS, fragmentShader: PLASMA_FS, uniforms: { uTail: { value: 2 }, uBow: { value: 0.7 }, uTime: SU.uTime, uColor: { value: new THREE.Color(col) }, uInt: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    this.plIn = new THREE.Mesh(this.plasmaGeo, pm(0xffffff)); this.plOut = new THREE.Mesh(this.plasmaGeo, pm(0xff8030));
+    for (const m of [this.plIn, this.plOut]) { m.renderOrder = 11; m.frustumCulled = false; m.visible = false; this.group.add(m); }
+    // --- entry trails
+    this.glowN = 9000; this.glowI = 0;
+    this.glowGeo = makeQuadGeometry(this.glowN, { aPos: 3, aData: 4 });
+    for (let i = 0; i < this.glowN; i++) this.glowGeo.attributes.aData.array[i * 4] = -1e9;
+    this.glowMat = new THREE.ShaderMaterial({ vertexShader: TRAIL_GLOW_VS, fragmentShader: PARTICLE_FS_GLOW, uniforms: { uTime: SU.uTime, uLife: { value: 1.1 }, uOV: { value: new V3() }, uPix: { value: 0.001 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    this.glow = new THREE.Mesh(this.glowGeo, this.glowMat); this.glow.frustumCulled = false; this.glow.renderOrder = 12; this.group.add(this.glow);
+    this.smokeN = 12000; this.smokeI = 0;
+    this.smokeGeo = makeQuadGeometry(this.smokeN, { aPos: 3, aVel: 3, aData: 4 });
+    for (let i = 0; i < this.smokeN; i++) this.smokeGeo.attributes.aData.array[i * 4] = -1e9;
+    this.smokeMat = new THREE.ShaderMaterial({ vertexShader: TRAIL_SMOKE_VS, fragmentShader: PARTICLE_FS_SMOKE, uniforms: { uTime: SU.uTime, uLife: { value: 45 }, uOV: { value: new V3() }, uOrigin: { value: this.P }, uSun: SU.uSun, uTint: { value: new THREE.Color(0.55, 0.5, 0.45) } }, transparent: true, depthWrite: false, ...PREMUL });
+    this.smoke = new THREE.Mesh(this.smokeGeo, this.smokeMat); this.smoke.frustumCulled = false; this.smoke.renderOrder = 9; this.group.add(this.smoke);
+    this.particleMats = [this.glowMat, this.smokeMat];
+    drawChart(sim, 120e3);
+  }
+
+  sampleAt(t) {
+    const S = this.sim.S; let lo = 0, hi = S.length - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (S[m].t <= t) lo = m; else hi = m; }
+    const a = S[lo], b = S[hi], f = b.t > a.t ? clamp((t - a.t) / (b.t - a.t), 0, 1) : 0;
+    const L = (k) => a[k] + (b[k] - a[k]) * f;
+    return { i: lo, f, z: L('z'), v: L('v'), m: L('m'), Lc: L('L'), dEdt: L('dEdt'), q: L('q'), broke: a.broke, rel: this.rel[lo].clone().lerp(this.rel[hi], f), t };
+  }
+
+  emitTrail(fromRel, toRel, rv, heat, smokeAmt) {
+    const seg = toRel.distanceTo(fromRel);
+    const n = clamp(Math.ceil(seg / Math.max(rv * 0.5, 1e-12)), 1, 48);
+    const gP = this.glowGeo.attributes.aPos, gD = this.glowGeo.attributes.aData;
+    const now = SU.uTime.value;
+    for (let k = 0; k < n; k++) {
+      const f = (k + this.rnd()) / n, i = this.glowI; this.glowI = (this.glowI + 1) % this.glowN;
+      const j = rv * 0.5;
+      gP.setXYZ(i, fromRel.x + (toRel.x - fromRel.x) * f + (this.rnd() - 0.5) * j, fromRel.y + (toRel.y - fromRel.y) * f + (this.rnd() - 0.5) * j, fromRel.z + (toRel.z - fromRel.z) * f + (this.rnd() - 0.5) * j);
+      gD.setXYZW(i, now - (1 - f) * 0.016, rv * (1.1 + 1.6 * heat) * (0.6 + 0.8 * this.rnd()), heat, this.rnd());
+    }
+    gP.needsUpdate = true; gD.needsUpdate = true;
+    if (smokeAmt > 0.02) {
+      const sP = this.smokeGeo.attributes.aPos, sV = this.smokeGeo.attributes.aVel, sD = this.smokeGeo.attributes.aData;
+      const ns = clamp(Math.ceil(n / 3), 1, 16);
+      for (let k = 0; k < ns; k++) {
+        const f = (k + this.rnd()) / ns, i = this.smokeI; this.smokeI = (this.smokeI + 1) % this.smokeN;
+        sP.setXYZ(i, fromRel.x + (toRel.x - fromRel.x) * f, fromRel.y + (toRel.y - fromRel.y) * f, fromRel.z + (toRel.z - fromRel.z) * f);
+        const dv = rv * 0.08;
+        sV.setXYZ(i, (this.rnd() - 0.5) * dv, (this.rnd() - 0.5) * dv, (this.rnd() - 0.5) * dv);
+        sD.setXYZW(i, now, rv * (0.8 + 0.6 * this.rnd()), smokeAmt * 0.45, this.rnd());
+      }
+      sP.needsUpdate = true; sV.needsUpdate = true; sD.needsUpdate = true;
+    }
+  }
+
+  placeBody(rel, st, heat, dtw) {
+    const world = this.P.clone().add(rel);
+    const L0 = this.sc.par.L, m0 = this.sim.m0;
+    const rBody = 0.5 * L0 * Math.cbrt(Math.max(st.m, 1e-9) / m0) * U;
+    const dCam = camera.position.distanceTo(world);
+    const exag = Math.max(1, dCam * 0.004 / Math.max(rBody, 1e-15));
+    const rv = rBody * exag;
+    const cloud = st.Lc / L0;
+    this.ast.position.copy(world);
+    this.ast.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(this.spinAxis, this.spinRate * dtw));
+    this.ast.scale.setScalar(rv);
+    const fragmented = cloud > 1.25;
+    this.ast.visible = !fragmented;
+    this.frag.visible = fragmented;
+    for (const mat of [this.rockMat, this.fragMat]) { mat.uniforms.uVel.value.copy(this.vdir); mat.uniforms.uHeat.value = heat; }
+    if (fragmented) {
+      this.frag.position.copy(world);
+      const b1 = new V3().crossVectors(this.vdir, world.clone().normalize()).normalize(), b2 = new V3().crossVectors(this.vdir, b1);
+      const rc = 0.5 * st.Lc * U * exag, M = new THREE.Matrix4();
+      for (let i = 0; i < this.NF; i++) {
+        const o = this.fragOff[i];
+        o.q.premultiply(new THREE.Quaternion().setFromAxisAngle(this.spinAxis, 2 * dtw));
+        const p = b1.clone().multiplyScalar(Math.cos(o.a) * o.r * rc).addScaledVector(b2, Math.sin(o.a) * o.r * rc).addScaledVector(this.vdir, -o.along * rc * 0.5);
+        M.compose(p, o.q, new V3().setScalar(rv * o.s * 1.4));
+        this.frag.setMatrixAt(i, M);
+      }
+      this.frag.instanceMatrix.needsUpdate = true;
+    }
+    // plasma sheath
+    const Rp = (fragmented ? 0.5 * st.Lc * U * exag : rv) * (1.15 + 0.5 * heat);
+    const vfac = clamp((st.v - 11000) / 40000, 0, 1);
+    const Tp = 5000 + 16000 * vfac;
+    const flick = 0.85 + 0.3 * Math.random();
+    const q = new THREE.Quaternion().setFromUnitVectors(ZAX, this.vdir);
+    for (const [m, s, tail, k] of [[this.plIn, 1.0, 1.5 + 4 * heat, 1.0], [this.plOut, 1.35, 3 + 10 * heat, 0.55]]) {
+      m.visible = heat > 0.01;
+      m.position.copy(world); m.quaternion.copy(q); m.scale.setScalar(Rp * s);
+      m.material.uniforms.uTail.value = tail;
+      const c = blackbodyJS(k === 1 ? Tp : Tp * 0.35);
+      m.material.uniforms.uColor.value.setRGB(c[0], c[1], c[2]);
+      m.material.uniforms.uInt.value = heat * heat * (k === 1 ? 1.1 : 0.45) * flick;
+    }
+    return { rv, world, Rp };
+  }
+
+  chaseCam(world, rv) {
+    gcam.k = this.phase === 'approach' ? 2.2 : 5;
+    const up = world.clone().normalize(), f = frameAt(up);
+    const hz = this.vdir.clone().addScaledVector(up, -this.vdir.dot(up));
+    const head = Math.atan2(hz.dot(f.E), hz.dot(f.N));
+    const th = Math.asin(clamp(-this.vdir.dot(up), -1, 1));
+    gcam.focusOn(world, Math.max(rv * 16, 40 * U), clamp(Math.PI / 2 - th + 0.3, 0.7, 1.38), head + 0.75);
+  }
+  witnessCam(range, focusAlt) {
+    const fp = this.P.clone().multiplyScalar(1 + focusAlt);
+    const tilt = 1.2 - 0.85 * ss(0.03, 1.5, range);
+    gcam.focusOn(fp, range, tilt, this.headTravel + Math.PI / 2 + (this.orbit || 0));
+  }
+
+  update(dw, dtw) {
+    this.w += dw;
+    const sim = this.sim;
+    if (this.phase === 'approach') {
+      const k = clamp(this.w / this.Wapp, 0, 1);
+      const rel = this.map.approachRel(this.Sapp * (1 - k));
+      const ahead = this.map.approachRel(this.Sapp * (1 - k) - 1000);
+      this.vdir.copy(ahead).sub(rel).normalize();
+      const st = { m: sim.m0, Lc: this.sc.par.L, v: this.sc.par.v };
+      const b = this.placeBody(rel, st, 0, dtw);
+      if (gcam.cinematic) this.chaseCam(b.world, b.rv);
+      this.hud('APPROACH', 'T−' + fmtTime((this.Sapp * (1 - k)) / this.sc.par.v + sim.tEvt), 'time-lapse ×' + Math.round(this.Sapp / this.sc.par.v / this.Wapp), [
+        ['Range to entry', fmtLen(this.Sapp * (1 - k))], ['Velocity', (this.sc.par.v / 1000).toFixed(1) + ' km/s'], ['Mass', fmtMass(sim.m0)], ['Energy', fmtE(sim.E0)]]);
+      if (k >= 1) { this.phase = 'entry'; this.wE = this.w; this.lastRel = rel; }
+      return;
+    }
+    if (this.phase === 'entry') {
+      const t = (this.w - this.wE) * this.entryRate;
+      if (t >= this.tEntryEnd) { if (sim.regime === 'grazer') this.finish(); else this.startAftermath(); return; }
+      const st = this.sampleAt(t);
+      const nxt = this.rel[Math.min(st.i + 1, this.rel.length - 1)];
+      if (nxt.distanceToSquared(this.rel[st.i]) > 0) this.vdir.copy(nxt).sub(this.rel[st.i]).normalize();
+      const heat = st.dEdt > 0 ? clamp((Math.log10(st.dEdt) - Math.log10(sim.peakDEdt) + 4.5) / 4.5, 0, 1) : 0;
+      const b = this.placeBody(st.rel, st, heat, dtw);
+      this.emitTrail(this.lastRel, st.rel, b.Rp * 0.6, heat, st.z < 95e3 ? heat : 0);
+      this.lastRel = st.rel;
+      const prog = t / this.tEntryEnd;
+      if (gcam.cinematic) {
+        if (prog < 0.6 && sim.regime !== 'grazer') this.chaseCam(b.world, b.rv);
+        else { gcam.k = 1.4; this.witnessCam(this.witnessRange(), this.sc.isImpact ? 0 : this.sc.zb * U * 0.5); }
+      }
+      const fr = st.Lc / this.sc.par.L;
+      const ph = sim.regime === 'grazer' ? 'GRAZING ENTRY' : !st.broke ? 'ATMOSPHERIC ENTRY' : fr < 1.25 ? 'BREAKUP' : fr < 6.9 ? 'PANCAKE FRAGMENTATION' : 'TERMINAL BURST';
+      const ePct = 100 * (1 - 0.5 * st.m * st.v * st.v / sim.E0);
+      this.hud(ph, 'T−' + fmtTime(Math.max(this.tEntryEnd - t, 0)), (this.entryRate < 1 ? 'slow-motion ×' + this.entryRate.toFixed(2) : '×' + this.entryRate.toFixed(1)), [
+        ['Altitude', fmtLen(st.z)], ['Velocity', (st.v / 1000).toFixed(2) + ' km/s'], ['Ram pressure', fmtSci(st.q, ' Pa')], ['Mass remaining', (100 * st.m / sim.m0).toFixed(1) + ' %'],
+        ['Debris-cloud width', fmtLen(st.Lc)], ['Energy deposited', clamp(ePct, 0, 100).toFixed(1) + ' %'], ['Power', fmtE(st.dEdt) + '/s'], ['Ablation glow', (heat * 100).toFixed(0) + ' %']]);
+      drawChart(sim, st.z);
+      return;
+    }
+    if (this.phase === 'after') { this.wa += dw; this.updateAftermath(this.t0 * (Math.exp(this.wa / this.tau) - 1), dtw); }
+  }
+
+  witnessRange() {
+    const sc = this.sc, c = sc.crater;
+    const r = Math.max(8 * sc.Rf, c ? 3 * c.Dfr : 0, 5 * sc.zb, 25e3);
+    return clamp(r * U, 20e3 * U, 2);
+  }
+
+  startAftermath() {
+    const sc = this.sc, sim = this.sim, cr = sc.crater, ocean = sc.site.ocean;
+    this.phase = 'after'; this.wa = 0;
+    this.ast.visible = false; this.frag.visible = false; this.plIn.visible = false; this.plOut.visible = false;
+    this.burstRel = sc.isImpact ? new V3() : this.rel[sim.iEvt].clone();
+    this.vImp = sc.isImpact ? sim.vImpact : sim.S[sim.iEvt].v;
+    this.tauG = Math.max(0.03, sc.Rf / (0.3 * Math.max(this.vImp, 5000)));
+    this.tauF = Math.max(0.05, sc.Rf / Math.max(this.vImp, 3000));
+    this.upAz = Math.atan2(-this.D.dot(this.N), -this.D.dot(this.E));
+    const thDeg = Math.abs(sim.gammaImpact) * 180 / Math.PI;
+    this.obliq = sc.isImpact ? clamp((30 - thDeg) / 22, 0, 1) : clamp((60 - sc.par.theta) / 50, 0, 1);
+    this.rIgn = sc.rIgnite; this.rBlast = sc.isImpact ? sc.r5psi : sc.r2psi; this.rClear = solveRadius(sc.pAt, 20000);
+    this.vSpread = sc.global >= 3 ? 2500 : 60;
+    this.Tcool = cr ? clamp(3600 * (cr.Dfr / 10e3) ** 2, 120, 4e5) : 0;
+    let Tend = Math.max(60, (solveRadius(sc.pAt, 3000) / C0) * 1.2);
+    if (cr) { Tend = Math.max(Tend, cr.Tex * 12, Math.min(this.Tcool * 1.5, 6e5)); if (ocean) Tend = Math.max(Tend, 2.5e6 / cr.tsuC); }
+    if (sc.dustOpacity > 0) Tend = Math.max(Tend, Math.PI * RE / this.vSpread * 1.1);
+    this.Tend = Math.min(Tend, 2e7);
+    this.t0 = 0.05; this.tau = 26 / Math.log(this.Tend / this.t0 + 1);
+    this.shake = clamp(0.004 * (Math.log10(sc.Efx / MT) + 4), 0.002, 0.03);
+    this.orbit = 0;
+    SU.uGZ.value.copy(this.P);
+    SU.uShock.value.set(0, 0, 0, 0.92);
+    // fireball
+    this.fireGeo = new THREE.IcosahedronGeometry(1, 5);
+    this.fireMat = new THREE.ShaderMaterial({ vertexShader: FIRE_VS, fragmentShader: FIRE_FS, transparent: true, depthWrite: false, ...PREMUL,
+      uniforms: { uTime: SU.uTime, uTurb: { value: 1 }, uTemp: { value: 9000 }, uInt: { value: 1 }, uSmoke: { value: 0 }, uOpacity: { value: 1 }, uSun: SU.uSun, uSmokeCol: { value: ocean ? new THREE.Color(0.8, 0.82, 0.85) : new THREE.Color(0.17, 0.14, 0.12) } } });
+    this.fire = new THREE.Mesh(this.fireGeo, this.fireMat); this.fire.renderOrder = 13; this.fire.frustumCulled = false; this.group.add(this.fire);
+    // shock dome
+    this.domeGeo = new THREE.SphereGeometry(1, 96, 48);
+    this.domeMat = new THREE.ShaderMaterial({ vertexShader: FIRE_VS, fragmentShader: DOME_FS, transparent: true, depthWrite: false, ...PREMUL, uniforms: { uTime: SU.uTime, uTurb: { value: 0 }, uStr: { value: 0 }, uSun: SU.uSun } });
+    this.dome = new THREE.Mesh(this.domeGeo, this.domeMat); this.dome.renderOrder = 14; this.dome.frustumCulled = false;
+    this.dome.quaternion.setFromUnitVectors(YAX, this.P); this.group.add(this.dome);
+    // crater / scar record
+    if (craters.length >= MAXC) craters.shift();
+    const rec = { c: this.P.clone(), R: 0, d: 0, hr: 0, Rt: 0, dt: 0, collapse: 0, melt: 0, reach: 1, type: sc.isImpact ? (ocean ? 1 : 0) : 2,
+      scorchR: 0, blastR: 0, upAz: sc.isImpact ? this.upAz : Math.atan2(this.D.dot(this.N), this.D.dot(this.E)), obliq: this.obliq, peak: 0, ring: 0, cplx: 0, seed: this.rnd() * 100 };
+    if (ocean && !sc.isImpact) rec.type = 2;
+    if (cr) {
+      rec.R = cr.Dfr / 2 * U; rec.d = cr.dfr * U; rec.hr = cr.hr * U;
+      rec.cplx = cr.Dfr > 3200 ? 1 : 0; rec.peak = cr.Dfr > 30000 ? 0.12 : cr.Dfr > 3200 ? 0.35 : 0; rec.ring = cr.Dfr > 30000 ? 1 : 0;
+      this.RtFinal = (ocean ? cr.Dtcw : cr.Dtc) / 2; this.dtFinal = (ocean ? cr.Dtcw : cr.Dtc) / 2.83;
+      this.meltK = clamp((Math.log10(cr.Vmelt + 1) - 3) / 7, 0.12, 1);
+      this.makeEjecta(); this.makePlume();
+    }
+    this.rec = rec; craters.push(rec); packCraters();
+  }
+
+  makeEjecta() {
+    const sc = this.sc, cr = sc.crater, ocean = sc.site.ocean, N = 32000, Rt = this.RtFinal;
+    if (!(Rt > 0)) return;
+    const geo = makeQuadGeometry(N, { aL: 4, aM: 4 }), aL = geo.attributes.aL.array, aM = geo.attributes.aM.array;
+    const vs = 0.35 * Math.sqrt(G0 * Rt), vmax = 0.5 * this.vImp;
+    this.ejVmax = 0;
+    for (let i = 0; i < N; i++) {
+      let az = this.rnd() * Math.PI * 2;
+      for (let k = 0; k < 8 && this.obliq > 0 && Math.abs(wrapPi(az - this.upAz)) < 1.1 * this.obliq && this.rnd() < 0.97; k++) az = this.rnd() * Math.PI * 2;
+      const x = 0.12 + 0.88 * Math.sqrt(this.rnd());
+      const v = Math.min(vs * Math.pow(x, -1 / 0.55) * (0.8 + 0.4 * this.rnd()), vmax);
+      this.ejVmax = Math.max(this.ejVmax, v);
+      const e = (45 + (this.rnd() - 0.5) * 22) * Math.PI / 180;
+      aL.set([az, x * Rt, v * Math.cos(e), v * Math.sin(e)], i * 4);
+      const water = ocean && (cr.Dtc <= 0 || this.rnd() < 0.8);
+      aM.set([cr.Tex * Math.pow(x, 2.5) * (0.9 + 0.2 * this.rnd()), 0.5 + this.rnd(), this.rnd(), water ? 1 : 0], i * 4);
+    }
+    this.ejMat = new THREE.ShaderMaterial({ vertexShader: EJECTA_VS, fragmentShader: PARTICLE_FS_SOFT, transparent: true, depthWrite: false, ...PREMUL,
+      uniforms: { uT: { value: 0 }, uSize: { value: Rt * U * 0.035 }, uLandFade: { value: Math.max(cr.Tex * 2, 30) }, uOV: { value: new V3() }, uC: { value: this.P }, uE: { value: this.E }, uN: { value: this.N }, uSun: SU.uSun } });
+    this.ej = new THREE.Mesh(geo, this.ejMat); this.ej.frustumCulled = false; this.ej.renderOrder = 12; this.group.add(this.ej);
+    this.particleMats.push(this.ejMat);
+  }
+  makePlume() {
+    const sc = this.sc, cr = sc.crater, ocean = sc.site.ocean, N = 1400;
+    const geo = makeQuadGeometry(N, { aP: 4 }), a = geo.attributes.aP.array;
+    for (let i = 0; i < N; i++) a.set([this.rnd() * Math.PI * 2, Math.sqrt(this.rnd()), Math.pow(this.rnd(), 0.7), this.rnd()], i * 4);
+    const R0 = Math.max(this.RtFinal, sc.Rf * 0.6);
+    this.plTr = Math.max(this.tauG * 30, cr.Tex * 2);
+    this.plMat = new THREE.ShaderMaterial({ vertexShader: PLUME_VS, fragmentShader: PARTICLE_FS_SMOKE, transparent: true, depthWrite: false, ...PREMUL,
+      uniforms: { uT: { value: 0 }, uR0: { value: R0 * U }, uH: { value: Math.min(Math.max(sc.Rf * 1.5, 2 * this.RtFinal, 3000), 150e3) * U }, uTr: { value: this.plTr }, uSpread: { value: 2.5 },
+        uSize: { value: R0 * U * 0.45 }, uFade: { value: 0 }, uOV: { value: new V3() }, uC: { value: this.P }, uE: { value: this.E }, uN: { value: this.N }, uSun: SU.uSun,
+        uTint: { value: ocean ? new THREE.Color(0.85, 0.88, 0.92) : new THREE.Color(0.24, 0.2, 0.17) } } });
+    this.plume = new THREE.Mesh(geo, this.plMat); this.plume.frustumCulled = false; this.plume.renderOrder = 11; this.group.add(this.plume);
+    this.particleMats.push(this.plMat);
+  }
+
+  updateAftermath(t, dtw) {
+    const sc = this.sc, cr = sc.crater, ocean = sc.site.ocean, rec = this.rec;
+    if (t >= this.Tend) { this.finish(); return; }
+    // fireball: growth, cooling, buoyant rise, transition to debris cloud
+    const tg = this.tauG, Rf = sc.Rf;
+    const R = Rf * (1 - Math.exp(-t / tg)) * (1 + 0.6 * ss(5 * tg, 200 * tg, t));
+    const T = 1600 + 8500 * Math.exp(-t / (3 * tg));
+    const rise = Rf * 1.2 * ss(3 * tg, 120 * tg, t);
+    const up = this.P;
+    const fRel = this.burstRel.clone().addScaledVector(up, (R * 0.25 + rise) * U);
+    this.fire.position.copy(this.P).add(fRel);
+    this.fire.scale.setScalar(Math.max(R, 1) * U);
+    const fu = this.fireMat.uniforms;
+    fu.uTemp.value = T; fu.uInt.value = 0.45; fu.uSmoke.value = ss(4 * tg, 40 * tg, t);
+    fu.uOpacity.value = 1 - ss(40 * tg, 160 * tg, t);
+    this.fire.visible = fu.uOpacity.value > 0.003;
+    // flash & surface illumination
+    const flashI = Math.exp(-t / this.tauF) + 0.25 * Math.exp(-t / (6 * tg));
+    const dCam = camera.position.distanceTo(this.fire.position);
+    const ang = clamp(Rf * U / Math.max(dCam, 1e-9), 0, 1);
+    const fc = blackbodyJS(T);
+    fxPass.uniforms.uFlash.value = clamp(Math.sqrt(ang) * (0.7 * Math.exp(-t / Math.min(this.tauF, 0.25)) + 0.12 * Math.exp(-t / this.tauF)), 0, 0.6);
+    fxPass.uniforms.uFlashCol.value.setRGB(fc[0], fc[1], fc[2]);
+    SU.uFlash.value.set(this.fire.position.x, this.fire.position.y, this.fire.position.z, flashI * 3 * (Rf * U) ** 2);
+    SU.uFlashCol.value.setRGB(fc[0], fc[1], fc[2]);
+    // blast wave: Sedov–Taylor -> acoustic; ground-reflected ring
+    const rs = sc.shockR(t), zb = sc.isImpact ? 0 : sc.zb;
+    const rg = Math.min(rs > zb ? Math.sqrt(rs * rs - zb * zb) : 0, Math.PI * RE);
+    const p = sc.pAt(Math.max(rg, 1));
+    const sI = rg > 0 ? clamp(Math.log10(p / 1000) / 2.2, 0, 1) : 0;
+    SU.uShock.value.x = 2 * Math.sin(Math.min(rg * U, Math.PI) / 2); SU.uShock.value.y = sI;
+    SU.uShock.value.z = 2 * Math.sin(Math.min(rg, this.rClear) * U / 2);
+    this.dome.position.copy(this.P).add(this.burstRel);
+    this.dome.scale.set(rs * U, Math.min(rs, Math.max(25e3, 2 * zb + Rf)) * U, rs * U);
+    this.domeMat.uniforms.uStr.value = clamp(Math.log10(sc.pAt(Math.max(rg, rs * 0.5)) / 2000) / 2, 0, 1);
+    this.dome.visible = this.domeMat.uniforms.uStr.value > 0.01;
+    // screen-space refraction of the shock front
+    const c = this.P.clone().project(camera), e = this.P.clone().addScaledVector(this.E, Math.max(rg, rs * 0.3) * U).project(camera);
+    const asp = innerWidth / innerHeight;
+    fxPass.uniforms.uShockC.value.set(c.x * 0.5 + 0.5, c.y * 0.5 + 0.5);
+    const sr = Math.hypot((e.x - c.x) * 0.5 * asp, (e.y - c.y) * 0.5);
+    fxPass.uniforms.uShockR.value = sr; fxPass.uniforms.uShockW.value = Math.max(sr * 0.04, 0.002);
+    fxPass.uniforms.uShockAmp.value = c.z < 1 ? 0.006 * sI * this.domeMat.uniforms.uStr.value : 0;
+    // permanent alteration: scorch (thermal pulse) and flattened structures (blast)
+    rec.scorchR = this.rIgn * U * ss(0, 3 * this.tauF, t);
+    rec.blastR = Math.min(rg, this.rBlast) * U;
+    // crater excavation and modification
+    if (cr) {
+      const g = clamp(t / cr.Tex, 0, 1), gp = Math.pow(g, 0.4);
+      rec.Rt = this.RtFinal * gp * U; rec.dt = this.dtFinal * gp * U;
+      rec.collapse = ss(cr.Tex, cr.Tex * 2.5, t);
+      rec.reach = 1 + 6 * ss(cr.Tex * 0.5, cr.Tex * 8, t);
+      rec.melt = (t < cr.Tex ? 1 : Math.exp(-(t - cr.Tex) / this.Tcool)) * this.meltK * ss(0, cr.Tex * 0.15, t);
+      if (this.ejMat) { this.ejMat.uniforms.uT.value = t; }
+      if (this.plMat) { this.plMat.uniforms.uT.value = t; this.plMat.uniforms.uFade.value = ss(0, this.plTr * 0.3, t) * (1 - ss(this.plTr * 8, this.plTr * 60, t)); }
+      if (ocean && cr.tsuA) {
+        const Rc = cr.Dtcw / 2, Rts = Math.min(Rc + cr.tsuC * Math.max(t - cr.Tex * 0.5, 0), Math.PI * RE), A = cr.tsuA(Rts);
+        SU.uTsu.value.set(2 * Math.sin(Rts * U / 2), clamp(Math.log10(A + 1) / 2.6, 0, 1), Math.max(cr.Dtcw * 1.2, 15e3) * U, t > cr.Tex * 0.5 ? 1 : 0);
+        this.tsuR = Rts; this.tsuA = A;
+      }
+    }
+    packCraters();
+    // global ejecta / soot veil
+    if (sc.dustOpacity > 0) {
+      dustState.x = Math.max(dustState.x, Math.min(Math.PI + 0.3, (this.vSpread * t + Rf) / RE));
+      dustState.y = Math.max(dustState.y * (dustState.x > 0 ? 1 : 0), sc.dustOpacity * ss(30, 900, t));
+      dustState.z = sc.global >= 3 ? ss(400, 1500, t) * (1 - ss(5 * 3600, 30 * 3600, t)) : 0;
+    }
+    // camera: frame the largest active phenomenon, slow orbit
+    let fr = R * 1.3;
+    if (cr) fr = Math.max(fr, cr.Dfr * 0.9);
+    if (sI > 0.15) fr = Math.max(fr, rg * 1.05);
+    if (this.ejVmax) fr = Math.max(fr, 0.5 * Math.min(0.7 * this.ejVmax * t, this.ejVmax ** 2 / G0, RE * 1.2));
+    if (this.tsuR && this.tsuA > 0.5) fr = Math.max(fr, this.tsuR);
+    if (sc.dustOpacity > 0) fr = Math.max(fr, dustState.x * RE * 0.7);
+    this.orbit += dtw * 0.02;
+    if (gcam.cinematic) { gcam.k = 1.2; this.witnessCam(clamp(Math.max(this.witnessRange(), 2.6 * fr * U), 0, 2.4), sc.isImpact ? 0 : sc.zb * U * 0.3); }
+    // HUD
+    const phase = t < 3 * this.tauF ? (sc.isImpact ? 'IMPACT FLASH' : 'AIRBURST FLASH') : t < 20 * tg ? 'FIREBALL EXPANSION' : cr && t < cr.Tex ? 'CRATER EXCAVATION' :
+      cr && t < cr.Tex * 2.5 ? 'CRATER COLLAPSE' : sI > 0.15 ? 'BLAST WAVE PROPAGATION' : this.tsuR && this.tsuA > 0.5 ? 'TSUNAMI PROPAGATION' :
+      dustState.z > 0.05 ? 'EJECTA RE-ENTRY / GLOBAL FIRESTORMS' : sc.dustOpacity > 0 ? 'STRATOSPHERIC DUST VEIL' : 'AFTERMATH';
+    const tele = [['Fireball radius', fmtLen(R)], ['Fireball temperature', Math.round(T) + ' K'], ['Shock front (ground)', fmtLen(rg)], ['Overpressure at front', rg > 0 ? (p / 1000).toPrecision(3) + ' kPa' : '—']];
+    if (cr) tele.push(['Transient cavity', fmtLen(2 * this.RtFinal * Math.pow(clamp(t / cr.Tex, 0, 1), 0.4))], ['Crater state', rec.collapse < 0.01 ? 'excavating' : rec.collapse < 0.99 ? 'collapsing' : 'final ' + fmtLen(cr.Dfr)]);
+    if (this.tsuR) tele.push(['Tsunami front', fmtLen(this.tsuR)], ['Wave amplitude', fmtLen(this.tsuA)]);
+    if (sc.dustOpacity > 0) tele.push(['Dust veil coverage', (100 * (1 - Math.cos(Math.min(dustState.x, Math.PI))) / 2).toFixed(1) + ' % of globe']);
+    this.hud(phase, 'T+' + fmtTime(t), 'log-time ×' + fmtSci(t / Math.max(this.wa, 1e-3)).replace('×10⁰', ''), tele);
+  }
+
+  preRender() {
+    this.group.updateMatrixWorld();
+    const ov = this.P.clone().applyMatrix4(camera.matrixWorldInverse);
+    for (const m of this.particleMats) { if (m.uniforms.uOV) m.uniforms.uOV.value.copy(ov); if (m.uniforms.uPix) m.uniforms.uPix.value = pixAngle(); }
+  }
+
+  hud(phase, clock, scale, rows) {
+    if ((this._hc = (this._hc || 0) + 1) % 3 !== 0 && phase === this._hp) return;
+    this._hp = phase;
+    $('phase').textContent = phase; $('clock').textContent = clock; $('tscale').textContent = scale;
+    $('tele').innerHTML = rows.map(r => `<div><span>${r[0]}</span><b>${r[1]}</b></div>`).join('');
+  }
+
+  finish() {
+    this.done = true;
+    // retire transient effects; permanent alteration (crater, scorch, dust veil, cleared clouds) stays in the surface uniforms
+    for (const o of [this.fire, this.dome, this.ej, this.plume, this.glow, this.smoke, this.ast, this.frag, this.plIn, this.plOut]) if (o) o.visible = false;
+    if (this.rec) { this.rec.Rt = this.RtFinal ? this.RtFinal * U : 0; this.rec.collapse = this.rec.type === 2 ? 0 : 1; this.rec.reach = 7; this.rec.blastR = this.rBlast * U; this.rec.scorchR = this.rIgn * U; packCraters(); }
+    SU.uShock.value.x = 0; SU.uShock.value.y = 0; SU.uFlash.value.w = 0; SU.uTsu.value.w = 0;
+    fxPass.uniforms.uFlash.value = 0; fxPass.uniforms.uShockAmp.value = 0;
+    if (dustState.y > 0) dustState.z = 0;
+    this.disposeGPU();
+    $('phase').textContent = this.sim.regime === 'grazer' ? 'EXITED ATMOSPHERE' : 'AFTERMATH — PERMANENT';
+    $('launch').disabled = false;
+    if (gcam.cinematic) {
+      const cr = this.sc.crater, size = cr && cr.Dfr > 0 ? cr.Dfr * 4 : Math.max(this.rBlast, this.rIgn, 2e4) * 2.5;
+      gcam.k = 0.8; gcam.focusOn(this.P, clamp(size * U, 3e3 * U, 1.5), 0.95, this.headTravel + 2.2);
+    }
+  }
+
+  disposeGPU() {
+    this.group.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    if (this.group.parent) scene.remove(this.group);
+    this.group.clear();
+    this.particleMats = [];
+  }
+  dispose() { this.disposeGPU(); }
+}
+function blackbodyJS(T) {
+  const t = clamp(T, 800, 40000) / 100;
+  const r = t <= 66 ? 1 : clamp(1.29293618606 * Math.pow(t - 60, -0.1332047592), 0, 1);
+  const g = t <= 66 ? clamp(0.39008157876 * Math.log(t) - 0.63184144378, 0, 1) : clamp(1.12989086089 * Math.pow(t - 60, -0.0755148492), 0, 1);
+  const b = t >= 66 ? 1 : t <= 19 ? 0 : clamp(0.54320678911 * Math.log(t - 10) - 1.19625408914, 0, 1);
+  return [r ** 2.2, g ** 2.2, b ** 2.2];
+}
+
+/* =====================================================================
+   LAUNCH / RESET
+   ===================================================================== */
+let event_ = null;
+function clearEventFx() {
+  SU.uShock.value.set(0, 0, 0, 0); SU.uFlash.value.set(0, 0, 0, 0); SU.uTsu.value.set(0, 0, 0, 0);
+  fxPass.uniforms.uFlash.value = 0; fxPass.uniforms.uShockAmp.value = 0;
+}
+$('launch').addEventListener('click', () => {
+  if (event_ && !event_.done) return;
+  if (scenarioDirty || !scenario) updateScenario();
+  if (event_) { event_.dispose(); event_ = null; }
+  clearEventFx();
+  SU.uShock.value.w = 0;
+  event_ = new ImpactEvent(scenario);
+  showPreview = false;
+  gcam.cinematic = $('cine').checked;
+  $('hud').style.display = 'block'; $('launch').disabled = true; $('hint').style.opacity = 0;
+});
+$('reset').addEventListener('click', () => {
+  if (event_) { event_.dispose(); event_ = null; }
+  craters.length = 0; packCraters();
+  clearEventFx(); dustState.set(0, 0, 0, 0);
+  $('hud').style.display = 'none'; $('launch').disabled = false;
+  gcam.cinematic = false; gcam.k = 2.5;
+  gcam.focusOn(site.P, 3200e3 * U, 0.9);
+  scheduleScenario();
+});
+
+/* =====================================================================
+   MAIN LOOP
+   ===================================================================== */
+syncLabels();
+applyPreset('chicxulub');
+setSite(nearestSurface(site.P, false));
+gcam.focusOn(site.P); gcam.s = { ...gcam.t };
+let lastT = performance.now(), fpsS = 0, fpsN = 0, fps = 0;
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min((now - lastT) / 1000, 0.1); lastT = now;
+  SU.uTime.value += dt;
+  const busy = event_ && !event_.done;
+  if (scenarioDirty && !busy) updateScenario();
+  const speed = Math.pow(2, +$('speed').value);
+  if (busy) event_.update(dt * speed, dt);
+  gcam.update(dt);
+  if (busy && event_.phase === 'after' && event_.shake > 0) {
+    const a = event_.shake * Math.exp(-event_.wa / 1.2);
+    camera.rotateX((Math.random() - 0.5) * a); camera.rotateY((Math.random() - 0.5) * a);
+  }
+  camera.updateMatrixWorld();
+  SU.uCam.value.copy(camera.position);
+  SU.uPixA.value = pixAngle();
+  SU.uDust.value.copy(dustState);
+  if (!$('dustVis').checked) { SU.uDust.value.y = 0; SU.uDust.value.z = 0; }
+  const inside = camera.position.length() < 1 + 100000 * U;
+  atmoMat.side = inside ? THREE.BackSide : THREE.FrontSide;
+  if (busy) event_.preRender();
+  const idle = !busy;
+  marker.visible = idle;
+  trajLine.visible = idle && showPreview;
+  if (idle) {
+    const d = camera.position.distanceTo(site.P);
+    marker.position.copy(site.P).multiplyScalar(1 + 200 * U);
+    marker.lookAt(site.P.clone().multiplyScalar(2));
+    marker.scale.setScalar(d * 0.012);
+    if (scenario) { dmgRings[0].visible = showPreview && scenario.r20psi > 0; dmgRings[1].visible = showPreview && scenario.r5psi > 0; dmgRings[2].visible = showPreview && scenario.r1psi > 0; }
+  } else for (const r of dmgRings) r.visible = false;
+  fxPass.uniforms.uTime.value = SU.uTime.value;
+  composer.render();
+  fpsS += dt; fpsN++;
+  if (fpsS > 0.5) {
+    fps = fpsN / fpsS; fpsS = 0; fpsN = 0;
+    const m = renderer.info.memory, alt = (camera.position.length() - 1) * RE;
+    $('stats').textContent = `${fps.toFixed(0)} fps · camera alt ${fmtLen(alt)} · GPU: ${m.geometries} geometries, ${m.textures} textures, ${renderer.info.programs.length} programs`;
+  }
+}
+updateScenario();
+$('loading').style.display = 'none';
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
